@@ -6,7 +6,7 @@ import { registerRoutes } from "./routes.js";
 dotenv.config({ path: "../../.env" });
 dotenv.config();
 
-const port = Number(process.env.API_PORT ?? 5174);
+const port = Number(process.env.API_PORT ?? 3000);
 const app = Fastify({ logger: true });
 
 await app.register(cors, { origin: true });

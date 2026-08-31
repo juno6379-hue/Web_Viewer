@@ -4,13 +4,37 @@
 
 ## DB
 
-개발 DB는 다음을 사용합니다.
+개발 DB는 `s100_dev`를 사용합니다. Parser와 Viewer API 계정은 분리합니다.
 
 ```text
-Host=127.0.0.1;Port=55432;Database=s100_dev;Username=s100_dev;Password=CHANGE_ME_LOCAL_ONLY
+Parser
+  -> s100_dev WRITE
+
+Viewer API
+  -> s100_viewer_readonly SELECT
 ```
 
 DB container는 `s100_dev_postgis`이고, 데이터는 Docker volume `s100_dev_pgdata`에 저장됩니다.
+
+조회 전용 계정 생성 스크립트는 `db/create-viewer-readonly-role.sql`입니다.
+
+## DB Connection Pool
+
+Fastify API는 `pg.Pool`을 사용합니다. 요청마다 새 PostgreSQL connection을 만들지 않습니다.
+
+기본 환경변수:
+
+```text
+DB_HOST=127.0.0.1
+DB_PORT=55432
+DB_NAME=s100_dev
+DB_USER=s100_viewer_readonly
+DB_PASSWORD=CHANGE_ME
+DB_POOL_MAX=10
+DB_IDLE_TIMEOUT_MS=30000
+```
+
+`DATABASE_URL`이 설정되어 있으면 호환을 위해 우선 사용합니다.
 
 ## DB 조회 계층
 
@@ -59,7 +83,10 @@ canonical
 
 | Endpoint | 용도 | 기본 조회 계층 |
 | --- | --- | --- |
-| `GET /api/health/db` | DB 연결 확인 | DB metadata |
+| `GET /health` | API, DB, projection, catalogue 통합 상태 | health check |
+| `GET /health/db` | DB pool 연결 확인 | DB metadata |
+| `GET /health/catalogue` | catalogue cache 상태 | catalogue cache |
+| `GET /api/health/db` | 기존 호환용 DB 연결 확인 | DB metadata |
 | `GET /api/datasets` | dataset 목록 | `projection.s101_dataset_current` |
 | `GET /api/datasets/:datasetId/versions` | dataset version 목록 | projection view 우선, 필요 시 `canonical.dataset_version` |
 | `GET /api/features` | 지도용 GeoJSON FeatureCollection | `projection.s101_feature_geojson` |
@@ -75,7 +102,10 @@ canonical
 
 | Endpoint | 구현 상태 | 비고 |
 | --- | --- | --- |
-| `GET /api/health/db` | 구현 | `s100_dev/s100_dev` 연결 확인 |
+| `GET /health` | 구현 | database/projection/catalogue 상태 반환 |
+| `GET /health/db` | 구현 | DB pool 연결과 현재 DB/user 반환 |
+| `GET /health/catalogue` | 구현 | catalogue cache 상태 반환 |
+| `GET /api/health/db` | 구현 | 기존 호환용 endpoint |
 | `GET /api/datasets` | 구현 | `projection.s101_dataset_current`와 `projection.s101_feature_current` 사용 |
 | `GET /api/features` | 구현 | `projection.s101_feature_geojson` 중심, bbox/filter/limit 지원 |
 | `GET /api/search/features` | 구현 | feature code, FOID, attribute, dataset 검색 |
@@ -122,6 +152,23 @@ feature/attribute 해석 key는 `catalogueSnapshotId + code`입니다. API는 pa
 | `bbox` | 아니오 | EPSG:4326 기준 `minX,minY,maxX,maxY` |
 | `featureTypeCode` | 아니오 | S-101 feature type code |
 | `limit` | 아니오 | 최대 row 수 |
+
+## source version metadata
+
+지도 feature 응답은 데이터 출처 추적을 위해 source version metadata를 포함합니다.
+
+```json
+{
+  "type": "FeatureCollection",
+  "datasetVersionId": "123",
+  "productSpecification": "2.0",
+  "featureCatalogueVersion": "2.0.0",
+  "portrayalCatalogueVersion": "2.0.0",
+  "features": []
+}
+```
+
+Feature Catalogue와 Portrayal Catalogue가 아직 cache에 연결되지 않은 경우 version 값은 `null`입니다.
 
 ## feature 검색 parameter
 

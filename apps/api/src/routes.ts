@@ -6,9 +6,14 @@ import type {
   FeatureDetail,
   FeatureGeoJsonCollection,
   FeatureSearchItem,
+  HealthStatus,
   QaSummary
 } from "../../../packages/shared/src/index.js";
 import { query } from "./db.js";
+
+const productSpecification = "2.0";
+const featureCatalogueVersion: string | null = null;
+const portrayalCatalogueVersion: string | null = null;
 
 const numberText = z.string().trim().regex(/^\d+$/).transform((value) => Number(value));
 const featureQuerySchema = z.object({
@@ -29,6 +34,30 @@ const searchQuerySchema = z.object({
 });
 
 export function registerRoutes(app: FastifyInstance) {
+  app.get("/health", async (): Promise<HealthStatus> => {
+    const [database, projection, catalogue] = await Promise.all([
+      checkDatabaseHealth(),
+      checkProjectionHealth(),
+      getCatalogueStatus()
+    ]);
+    return {
+      database,
+      projection,
+      featureCatalogue: catalogue.featureCatalogue?.version ?? "not_loaded",
+      portrayalCatalogue: catalogue.portrayalCatalogue?.version ?? "not_loaded"
+    };
+  });
+
+  app.get("/health/db", async () => {
+    const result = await query<{ database: string; user_name: string }>(
+      "SELECT current_database() AS database, current_user AS user_name"
+    );
+    const row = result.rows[0];
+    return { database: "ok", name: row.database, user: row.user_name };
+  });
+
+  app.get("/health/catalogue", async (): Promise<CatalogueRuntimeStatus> => getCatalogueStatus());
+
   app.get("/api/health/db", async () => {
     const result = await query<{ database: string; user_name: string }>(
       "SELECT current_database() AS database, current_user AS user_name"
@@ -75,6 +104,7 @@ export function registerRoutes(app: FastifyInstance) {
       datasetVersionId: row.dataset_version_id,
       dsnm: row.dsnm,
       productId: row.product_id,
+      productSpecification,
       editionNumber: row.edition_number,
       updateNumber: row.update_number,
       purpose: row.purpose,
@@ -82,19 +112,17 @@ export function registerRoutes(app: FastifyInstance) {
       bbox: row.bbox,
       featureCount: Number(row.feature_count)
     }));
-    return { items };
-  });
-
-  app.get("/api/catalogue/status", async (): Promise<CatalogueRuntimeStatus> => {
     return {
-      featureCatalogue: null,
-      portrayalCatalogue: null,
-      cacheReady: false,
-      catalogueMismatch: false,
-      warning:
-        "Feature Catalogue XML 초기화 cache와 parser DB catalogue version/hash 비교는 다음 구현 단계에서 연결합니다."
+      source: {
+        productSpecification,
+        featureCatalogueVersion,
+        portrayalCatalogueVersion
+      },
+      items
     };
   });
+
+  app.get("/api/catalogue/status", async (): Promise<CatalogueRuntimeStatus> => getCatalogueStatus());
 
   app.get("/api/features", async (request) => {
     const parsed = featureQuerySchema.parse(request.query);
@@ -144,6 +172,10 @@ export function registerRoutes(app: FastifyInstance) {
 
     const collection: FeatureGeoJsonCollection = {
       type: "FeatureCollection",
+      datasetVersionId: parsed.datasetVersionId === undefined ? null : String(parsed.datasetVersionId),
+      productSpecification,
+      featureCatalogueVersion,
+      portrayalCatalogueVersion,
       features: result.rows.map((row) => ({
         type: "Feature",
         id: row.feature_instance_id,
@@ -245,7 +277,13 @@ export function registerRoutes(app: FastifyInstance) {
       bbox: row.bbox,
       matchReason: row.match_reason
     }));
-    return { items };
+    return {
+      datasetVersionId: result.rows[0]?.dataset_version_id ?? null,
+      productSpecification,
+      featureCatalogueVersion,
+      portrayalCatalogueVersion,
+      items
+    };
   });
 
   app.get("/api/features/:featureInstanceId", async (request) => {
@@ -697,4 +735,33 @@ export function registerRoutes(app: FastifyInstance) {
     );
     return result.rows[0];
   });
+}
+
+async function getCatalogueStatus(): Promise<CatalogueRuntimeStatus> {
+  return {
+    featureCatalogue: null,
+    portrayalCatalogue: null,
+    cacheReady: false,
+    catalogueMismatch: false,
+    warning:
+      "Feature Catalogue XML 초기화 cache와 parser DB catalogue version/hash 비교는 다음 구현 단계에서 연결합니다."
+  };
+}
+
+async function checkDatabaseHealth(): Promise<"ok" | "error"> {
+  try {
+    await query("SELECT 1");
+    return "ok";
+  } catch {
+    return "error";
+  }
+}
+
+async function checkProjectionHealth(): Promise<"ok" | "error"> {
+  try {
+    await query("SELECT 1 FROM projection.s101_dataset_current LIMIT 1");
+    return "ok";
+  } catch {
+    return "error";
+  }
 }

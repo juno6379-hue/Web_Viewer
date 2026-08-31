@@ -7,7 +7,7 @@ import type {
   QaSummary
 } from "../../../packages/shared/src/index";
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5174";
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
 
 async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(`${apiBaseUrl}${path}`);

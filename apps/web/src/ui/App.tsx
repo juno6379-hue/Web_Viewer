@@ -19,6 +19,10 @@ import {
 
 const emptyCollection: FeatureGeoJsonCollection = {
   type: "FeatureCollection",
+  datasetVersionId: null,
+  productSpecification: "2.0",
+  featureCatalogueVersion: null,
+  portrayalCatalogueVersion: null,
   features: []
 };
 
@@ -198,6 +202,10 @@ export function App() {
         if (featureInstanceId) {
           setSelectedFeature({
             type: "FeatureCollection",
+            datasetVersionId: selectedDataset?.datasetVersionId ?? null,
+            productSpecification: selectedDataset?.productSpecification ?? "2.0",
+            featureCatalogueVersion: catalogueStatus?.featureCatalogue?.version ?? null,
+            portrayalCatalogueVersion: catalogueStatus?.portrayalCatalogue?.version ?? null,
             features: [
               {
                 type: "Feature",
@@ -288,9 +296,20 @@ export function App() {
     if (feature) {
       setSelectedFeature({
         type: "FeatureCollection",
+        datasetVersionId: selectedDataset?.datasetVersionId ?? null,
+        productSpecification: selectedDataset?.productSpecification ?? "2.0",
+        featureCatalogueVersion: catalogueStatus?.featureCatalogue?.version ?? null,
+        portrayalCatalogueVersion: catalogueStatus?.portrayalCatalogue?.version ?? null,
         features: [feature]
       });
-      const bounds = createBounds({ type: "FeatureCollection", features: [feature] });
+      const bounds = createBounds({
+        type: "FeatureCollection",
+        datasetVersionId: selectedDataset?.datasetVersionId ?? null,
+        productSpecification: selectedDataset?.productSpecification ?? "2.0",
+        featureCatalogueVersion: catalogueStatus?.featureCatalogue?.version ?? null,
+        portrayalCatalogueVersion: catalogueStatus?.portrayalCatalogue?.version ?? null,
+        features: [feature]
+      });
       if (bounds) {
         mapRef.current?.fitBounds(bounds, { padding: 80, maxZoom: 15, duration: 500 });
       }
@@ -785,6 +804,10 @@ function createDataCoverage(dataset: DatasetItem | null): FeatureGeoJsonCollecti
   }
   return {
     type: "FeatureCollection",
+    datasetVersionId: dataset.datasetVersionId,
+    productSpecification: dataset.productSpecification,
+    featureCatalogueVersion: null,
+    portrayalCatalogueVersion: null,
     features: [
       {
         type: "Feature",

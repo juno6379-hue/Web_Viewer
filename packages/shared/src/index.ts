@@ -3,6 +3,7 @@ export interface DatasetItem {
   datasetVersionId: string;
   dsnm: string;
   productId: string;
+  productSpecification: string;
   editionNumber: number | null;
   updateNumber: number | null;
   purpose: string;
@@ -13,6 +14,10 @@ export interface DatasetItem {
 
 export interface FeatureGeoJsonCollection {
   type: "FeatureCollection";
+  datasetVersionId: string | null;
+  productSpecification: string;
+  featureCatalogueVersion: string | null;
+  portrayalCatalogueVersion: string | null;
   features: Array<{
     type: "Feature";
     id: string;
@@ -181,4 +186,11 @@ export interface CatalogueSnapshotStatus {
   hash: string;
   sourcePath: string;
   loadedAt: string;
+}
+
+export interface HealthStatus {
+  database: "ok" | "error";
+  projection: "ok" | "error";
+  featureCatalogue: string | "not_loaded";
+  portrayalCatalogue: string | "not_loaded";
 }

@@ -48,15 +48,41 @@ Frontend가 복잡한 canonical 구조를 몰라도 되도록, 필요하면 proj
 | `projection.s101_dataset_summary` | dataset 목록/상태 요약 |
 | `projection.s101_qa_summary` | Dashboard와 동일한 QA 요약 |
 
-## 사용 DB
+## 사용 DB와 계정
 
-기본 개발 DB는 다음과 같습니다.
+기본 개발 DB는 다음과 같습니다. Parser는 write 계정을 사용하고, WebViewer API는 조회 전용 계정을 사용합니다.
 
 ```text
-Host=127.0.0.1;Port=55432;Database=s100_dev;Username=s100_dev;Password=CHANGE_ME_LOCAL_ONLY
+Parser
+  -> s100_dev WRITE
+
+Viewer API
+  -> s100_viewer_readonly SELECT
 ```
 
 DB는 `S101DashboardApp23.exe` 또는 `Phase27BatchIngestRunner.exe`가 생성한 결과를 사용합니다.
+
+조회 전용 계정 생성 스크립트는 `db/create-viewer-readonly-role.sql`입니다.
+
+## 환경변수
+
+`.env.example` 기준 설정:
+
+```text
+DB_HOST=127.0.0.1
+DB_PORT=55432
+DB_NAME=s100_dev
+DB_USER=s100_viewer_readonly
+DB_PASSWORD=CHANGE_ME
+
+WEB_PORT=5173
+API_PORT=3000
+
+FEATURE_CATALOGUE_PATH=
+PORTRAYAL_CATALOGUE_PATH=
+```
+
+`.env`는 Git에 커밋하지 않습니다. `DATABASE_URL`을 별도로 지정하면 호환을 위해 우선 적용됩니다.
 
 ## 입력 자료
 
@@ -275,15 +301,17 @@ http://localhost:5173/
 API 확인:
 
 ```text
-http://localhost:5174/api/health/db
-http://localhost:5174/api/datasets
+http://localhost:3000/health
+http://localhost:3000/health/db
+http://localhost:3000/health/catalogue
+http://localhost:3000/api/datasets
 ```
 
 검증된 현재 서버:
 
 | 서버 | URL | 상태 |
 | --- | --- | --- |
-| API | `http://127.0.0.1:5174` | 실행 확인 |
+| API | `http://127.0.0.1:3000` | 기본 포트 |
 | Web | `http://localhost:5173` | HTTP 200 확인 |
 
 ## 관련 문서
@@ -294,3 +322,4 @@ http://localhost:5174/api/datasets
 - `docs/catalogue-integration.md`: Feature Catalogue와 Portrayal Catalogue 연동
 - `docs/portrayal-engine-plan.md`: S-100 Part 9a 기반 Portrayal Engine 단계별 계획
 - `docs/qa-validation-plan.md`: QA 및 검증 계획
+- `docs/readonly-db-account.md`: Viewer 조회 전용 DB 계정 설정
