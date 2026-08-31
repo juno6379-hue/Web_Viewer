@@ -1,6 +1,12 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import type { DatasetItem, FeatureDetail, FeatureGeoJsonCollection, QaSummary } from "../../../packages/shared/src/index.js";
+import type {
+  CatalogueRuntimeStatus,
+  DatasetItem,
+  FeatureDetail,
+  FeatureGeoJsonCollection,
+  QaSummary
+} from "../../../packages/shared/src/index.js";
 import { query } from "./db.js";
 
 const numberText = z.string().trim().regex(/^\d+$/).transform((value) => Number(value));
@@ -71,6 +77,17 @@ export function registerRoutes(app: FastifyInstance) {
       featureCount: Number(row.feature_count)
     }));
     return { items };
+  });
+
+  app.get("/api/catalogue/status", async (): Promise<CatalogueRuntimeStatus> => {
+    return {
+      featureCatalogue: null,
+      portrayalCatalogue: null,
+      cacheReady: false,
+      catalogueMismatch: false,
+      warning:
+        "Feature Catalogue XML 초기화 cache와 parser DB catalogue version/hash 비교는 다음 구현 단계에서 연결합니다."
+    };
   });
 
   app.get("/api/features", async (request) => {
@@ -179,6 +196,7 @@ export function registerRoutes(app: FastifyInstance) {
       datasetId: row.dataset_id,
       datasetVersionId: row.dataset_version_id,
       featureRecordId: row.feature_record_id,
+      catalogueSnapshotId: null,
       featureTypeCode: row.feature_type_code,
       foid: { agen: row.foid_agen, fidn: row.foid_fidn, fids: row.foid_fids },
       lifecycleStatus: row.lifecycle_status,

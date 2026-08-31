@@ -114,6 +114,27 @@ select {
   color: #b45309;
 }
 
+.notice {
+  border: 1px solid #d9e2ef;
+  border-radius: 6px;
+  padding: 10px;
+}
+
+.notice p {
+  margin: 8px 0 0;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ok-box {
+  background: #f0fdf4;
+}
+
+.warn-box {
+  background: #fffbeb;
+}
+
 .feature-detail pre {
   max-height: 240px;
   overflow: auto;

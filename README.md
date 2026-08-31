@@ -85,7 +85,8 @@ D:\dev\WebViewer
     api\        Fastify API 서버
     web\        Vite React TypeScript Viewer
   packages\
-    catalogue\  Feature/Portrayal Catalogue parser 및 cache builder
+    catalogue\  Feature Catalogue parser 및 snapshot cache model
+    portrayal\  S-101 portrayal engine, Lua runtime, MapLibre adapter 구조
     shared\     공통 TypeScript type
   docs\
     development-procedure.md
@@ -122,8 +123,40 @@ D:\dev\WebViewer
 | projection GeoJSON API | 완료 |
 | feature inspector API | 완료 |
 | QA summary API | 완료 |
-| Feature Catalogue parser | 다음 단계 |
-| Portrayal Catalogue style engine | 다음 단계 |
+| Feature Catalogue snapshot/cache model | 진행 중 |
+| Portrayal engine interface | 진행 중 |
+| Portrayal Catalogue Lua engine | 다음 단계 |
+
+## Feature Catalogue 처리 원칙
+
+Feature Catalogue는 API 요청마다 XML을 parsing하지 않습니다. 서버 초기화 단계에서 다음 흐름으로 1회 처리하고 cache를 사용합니다.
+
+```text
+101_Feature_Catalogue_2.0.0.xml
+  -> Catalogue Parser
+  -> Normalized Catalogue Model
+  -> Cache
+```
+
+정규화 모델은 `catalogueSnapshotId`, catalogue version, catalogue hash를 포함합니다. feature/attribute 해석 기준은 단순 `featureCode`가 아니라 `catalogueSnapshotId + featureCode`입니다.
+
+Parser DB 생성에 사용한 catalogue와 Viewer가 loading한 catalogue의 version/hash가 다르면 API와 화면에 경고를 표시해야 합니다.
+
+## Portrayal 처리 원칙
+
+MVP에서는 feature type과 geometry type을 기준으로 임시 MapLibre style을 적용합니다. 이는 1차 지도 확인용이며 완전한 S-101 Portrayal 구현이 아닙니다.
+
+표준 구현 목표는 S-100 Part 9a 흐름을 따릅니다.
+
+```text
+Feature + Attributes + Context Parameters + Portrayal Catalogue + Lua
+  -> Portrayal Engine
+  -> Drawing Instructions
+  -> MapLibre Rendering Adapter
+  -> Map
+```
+
+`packages/portrayal`은 이 목표 구조를 유지하기 위한 module boundary입니다. 주요 구성은 `CatalogueLoader`, `LuaRuntime`, `PortrayalContext`, `PortrayalEngine`, `DrawingInstruction`, `SymbolResolver`, `MapLibreAdapter`입니다.
 
 ## 실행 방법
 
@@ -182,4 +215,5 @@ http://localhost:5174/api/datasets
 - `docs/architecture.md`: 전체 구조
 - `docs/db-api-contract.md`: DB/API 계약
 - `docs/catalogue-integration.md`: Feature Catalogue와 Portrayal Catalogue 연동
+- `docs/portrayal-engine-plan.md`: S-100 Part 9a 기반 Portrayal Engine 단계별 계획
 - `docs/qa-validation-plan.md`: QA 및 검증 계획

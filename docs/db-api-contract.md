@@ -66,6 +66,7 @@ canonical
 | `GET /api/features/:featureInstanceId` | feature 상세정보 | `projection.s101_feature_detail` 또는 API 내부 canonical detail read |
 | `GET /api/catalogue/features` | Feature Catalogue feature type metadata | catalogue cache |
 | `GET /api/catalogue/attributes` | Feature Catalogue attribute metadata | catalogue cache |
+| `GET /api/catalogue/status` | loaded catalogue snapshot/version/hash와 DB catalogue mismatch 상태 | catalogue cache + DB metadata |
 | `GET /api/qa/summary` | Dashboard와 동일한 QA count | `projection.s101_qa_summary` 또는 API 내부 QA query |
 | `GET /api/qa/issues` | validation issue 조회 | `validation.validation_issue` |
 
@@ -81,7 +82,34 @@ canonical
 | `GET /api/datasets/:datasetId/versions` | 예정 | projection view 또는 제한된 canonical read 필요 |
 | `GET /api/catalogue/features` | 예정 | catalogue cache 구현 후 연결 |
 | `GET /api/catalogue/attributes` | 예정 | catalogue cache 구현 후 연결 |
+| `GET /api/catalogue/status` | 예정 | parser DB catalogue와 Viewer catalogue version/hash 비교 |
 | `GET /api/qa/issues` | 예정 | validation issue filter 구현 필요 |
+
+## Catalogue API 원칙
+
+Feature Catalogue 응답은 항상 snapshot 식별자를 포함합니다.
+
+```json
+{
+  "catalogueSnapshotId": "s101-feature-2.0.0-sha256-...",
+  "version": "2.0.0",
+  "hashAlgorithm": "SHA-256",
+  "hash": "...",
+  "features": []
+}
+```
+
+feature/attribute 해석 key는 `catalogueSnapshotId + code`입니다. API는 parser DB의 catalogue metadata와 Viewer cache metadata를 비교하고, version 또는 hash가 다르면 다음 형태의 경고를 반환합니다.
+
+```json
+{
+  "catalogueMismatch": true,
+  "dbCatalogueVersion": "2.0.0",
+  "viewerCatalogueVersion": "2.0.0",
+  "dbCatalogueHash": "...",
+  "viewerCatalogueHash": "..."
+}
+```
 
 ## feature 조회 parameter
 

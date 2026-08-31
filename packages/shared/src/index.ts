@@ -26,6 +26,7 @@ export interface FeatureDetail {
   datasetId: string;
   datasetVersionId: string;
   featureRecordId: string;
+  catalogueSnapshotId: string | null;
   featureTypeCode: number;
   foid: {
     agen: number | null;
@@ -55,4 +56,23 @@ export interface QaSummary {
   geoJsonRows: number;
   missingGeoJson: number;
   blockingValidationIssues: number;
+}
+
+export interface CatalogueRuntimeStatus {
+  featureCatalogue: CatalogueSnapshotStatus | null;
+  portrayalCatalogue: CatalogueSnapshotStatus | null;
+  cacheReady: boolean;
+  catalogueMismatch: boolean;
+  warning: string | null;
+}
+
+export interface CatalogueSnapshotStatus {
+  catalogueSnapshotId: string;
+  productId: string;
+  catalogueType: "feature" | "portrayal";
+  version: string;
+  hashAlgorithm: "SHA-256";
+  hash: string;
+  sourcePath: string;
+  loadedAt: string;
 }

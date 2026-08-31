@@ -50,7 +50,8 @@ canonical
 | --- | --- |
 | `apps/api` | projection 우선 조회, catalogue/QA/detail 보강, JSON/GeoJSON 반환 |
 | `apps/web` | 지도, dataset 선택, filter, feature inspector, QA panel |
-| `packages/catalogue` | Feature Catalogue와 Portrayal Catalogue parsing/cache |
+| `packages/catalogue` | Feature Catalogue 정규화, snapshot/version/hash, cache model |
+| `packages/portrayal` | Portrayal Catalogue loading, Lua runtime, drawing instruction, MapLibre adapter 경계 |
 | `packages/shared` | API와 Frontend 공통 TypeScript type |
 
 ## 화면 구성
@@ -71,6 +72,47 @@ canonical
 - 상세정보는 feature click 이후 lazy loading합니다.
 - QA 쿼리는 반드시 `dataset_version_id`로 범위를 제한합니다.
 - 전체 spatial table에 `ST_IsValid`를 직접 scan하지 않습니다.
+- Feature Catalogue XML은 요청마다 parsing하지 않고 초기화 단계에서 snapshot cache로 올립니다.
+
+## Catalogue 해석 경계
+
+Feature Catalogue 해석 기준은 `catalogueSnapshotId + featureCode`입니다. 같은 feature code라도 catalogue version 또는 catalogue hash가 다르면 다른 해석 기준으로 봅니다.
+
+```text
+101_Feature_Catalogue_2.0.0.xml
+  -> Catalogue Parser
+  -> Normalized Catalogue Model
+  -> Cache
+```
+
+API는 parser DB가 사용한 catalogue version/hash와 Viewer cache의 catalogue version/hash를 비교합니다. 값이 다르면 dataset panel 또는 catalogue panel에 mismatch warning을 표시합니다.
+
+## Portrayal 구조
+
+1차 Viewer MVP는 feature type, geometry type 기반 fallback MapLibre style을 사용합니다. 이 방식은 지도 확인용 임시 구현입니다.
+
+표준 Portrayal 구현은 S-100 Part 9a의 Lua 기반 drawing instruction 흐름을 목표로 합니다.
+
+```text
+Feature
+  -> Portrayal Engine
+  -> Lua
+  -> Drawing Instructions
+  -> MapLibre Adapter
+  -> Map
+```
+
+`packages/portrayal`은 다음 module boundary를 가집니다.
+
+| 모듈 | 책임 |
+| --- | --- |
+| `CatalogueLoader` | Portrayal Catalogue snapshot loading |
+| `LuaRuntime` | Lua portrayal rule 실행 |
+| `PortrayalContext` | scale, display mode, viewing group 등 context parameter |
+| `PortrayalEngine` | feature와 context를 drawing instruction으로 변환 |
+| `DrawingInstruction` | point/line/area/text rendering 지시 모델 |
+| `SymbolResolver` | symbol reference와 symbol asset 해석 |
+| `MapLibreAdapter` | drawing instruction을 MapLibre layer/source 정의로 변환 |
 
 ## 초기 제외 범위
 

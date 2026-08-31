@@ -1,4 +1,10 @@
-import type { DatasetItem, FeatureDetail, FeatureGeoJsonCollection, QaSummary } from "../../../packages/shared/src/index";
+import type {
+  CatalogueRuntimeStatus,
+  DatasetItem,
+  FeatureDetail,
+  FeatureGeoJsonCollection,
+  QaSummary
+} from "../../../packages/shared/src/index";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5174";
 
@@ -33,4 +39,8 @@ export async function fetchQaSummary(dataset: DatasetItem) {
     datasetVersionId: dataset.datasetVersionId
   });
   return getJson<QaSummary>(`/api/qa/summary?${params.toString()}`);
+}
+
+export async function fetchCatalogueStatus() {
+  return getJson<CatalogueRuntimeStatus>("/api/catalogue/status");
 }

@@ -40,14 +40,16 @@ canonical
 7. `projection.s101_dataset_current` 기반 dataset 목록 API를 만듭니다.
 8. `projection.s101_feature_geojson` 기반 feature GeoJSON API를 만듭니다.
 9. MapLibre 지도에 feature를 표시합니다.
-10. Feature Catalogue parser/cache를 만듭니다.
-11. feature type과 attribute 이름을 catalogue 기반으로 표시합니다.
-12. Portrayal Catalogue parser/cache를 만듭니다.
-13. portrayal rule이 준비되지 않은 feature에는 fallback style을 적용합니다.
-14. feature inspector를 만듭니다.
-15. QA summary panel을 만듭니다.
-16. validation issue panel을 만듭니다.
-17. Playwright로 지도 nonblank, feature click, QA panel을 확인합니다.
+10. Feature Catalogue parser를 초기화 단계에서만 실행하도록 만듭니다.
+11. `catalogueSnapshotId`, catalogue version, SHA-256 hash를 포함한 normalized catalogue cache를 만듭니다.
+12. parser DB가 사용한 catalogue와 Viewer catalogue cache의 version/hash mismatch warning을 표시합니다.
+13. feature type과 attribute 이름을 `catalogueSnapshotId + code` 기준으로 표시합니다.
+14. Portrayal MVP는 feature type과 geometry type 기반 fallback MapLibre style로 구현합니다.
+15. 표준 Portrayal은 Lua runtime, drawing instruction, MapLibre adapter 구조를 먼저 고정한 뒤 단계적으로 구현합니다.
+16. feature inspector를 만듭니다.
+17. QA summary panel을 만듭니다.
+18. validation issue panel을 만듭니다.
+19. Playwright로 지도 nonblank, feature click, QA panel을 확인합니다.
 
 ## 1차 구현 완료 기준
 
@@ -74,6 +76,8 @@ canonical
 | Feature API | `projection.s101_feature_geojson` 중심 조회 |
 | Feature detail API | `projection.s101_feature_current` 중심 조회 |
 | QA summary API | projection count와 canonical evidence count를 API 내부에서 계산 |
+| Catalogue model | version/hash/snapshot 기반 정규화 type 추가 |
+| Portrayal model | Lua portrayal engine과 MapLibre adapter 경계 type 추가 |
 | 빌드 검증 | `npm run typecheck`, `npm run build` 통과 |
 | 실행 검증 | API health/datasets/features/qa 응답 확인, Web HTTP 200 확인 |
 
@@ -86,3 +90,4 @@ canonical
 - canonical join을 map/list primary path로 사용하지 않습니다.
 - source 좌표가 부족한 null geometry를 임의로 생성하지 않습니다.
 - 대용량 dataset/catalogue cache를 Git에 커밋하지 않습니다.
+- Portrayal Catalogue를 최종 구조에서 단순 MapLibre Style JSON 변환기로 고정하지 않습니다.

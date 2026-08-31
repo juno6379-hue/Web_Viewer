@@ -1,7 +1,13 @@
 import maplibregl from "maplibre-gl";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { DatasetItem, FeatureDetail, FeatureGeoJsonCollection, QaSummary } from "../../../../packages/shared/src/index";
-import { fetchDatasets, fetchFeatureDetail, fetchFeatures, fetchQaSummary } from "../api";
+import type {
+  CatalogueRuntimeStatus,
+  DatasetItem,
+  FeatureDetail,
+  FeatureGeoJsonCollection,
+  QaSummary
+} from "../../../../packages/shared/src/index";
+import { fetchCatalogueStatus, fetchDatasets, fetchFeatureDetail, fetchFeatures, fetchQaSummary } from "../api";
 
 const emptyCollection: FeatureGeoJsonCollection = {
   type: "FeatureCollection",
@@ -16,6 +22,7 @@ export function App() {
   const [features, setFeatures] = useState<FeatureGeoJsonCollection>(emptyCollection);
   const [qa, setQa] = useState<QaSummary | null>(null);
   const [detail, setDetail] = useState<FeatureDetail | null>(null);
+  const [catalogueStatus, setCatalogueStatus] = useState<CatalogueRuntimeStatus | null>(null);
   const [message, setMessage] = useState("초기화 중");
 
   const selectedDataset = useMemo(
@@ -31,6 +38,9 @@ export function App() {
         setMessage(result.items.length > 0 ? "dataset 조회 완료" : "dataset 없음");
       })
       .catch((error: Error) => setMessage(`dataset 조회 실패: ${error.message}`));
+    fetchCatalogueStatus()
+      .then(setCatalogueStatus)
+      .catch((error: Error) => setMessage(`catalogue 상태 조회 실패: ${error.message}`));
   }, []);
 
   useEffect(() => {
@@ -165,6 +175,11 @@ export function App() {
         </section>
 
         <section className="panel-section">
+          <h2>Catalogue</h2>
+          {catalogueStatus ? <CataloguePanel status={catalogueStatus} /> : <p className="muted">catalogue 상태 확인 중</p>}
+        </section>
+
+        <section className="panel-section">
           <h2>QA Summary</h2>
           {qa ? <QaPanel qa={qa} /> : <p className="muted">QA 대기 중</p>}
         </section>
@@ -207,6 +222,22 @@ function QaPanel({ qa }: { qa: QaSummary }) {
   );
 }
 
+function CataloguePanel({ status }: { status: CatalogueRuntimeStatus }) {
+  return (
+    <div className={status.catalogueMismatch || !status.cacheReady ? "notice warn-box" : "notice ok-box"}>
+      <dl className="meta-grid">
+        <dt>Cache</dt>
+        <dd>{status.cacheReady ? "준비됨" : "미준비"}</dd>
+        <dt>Feature</dt>
+        <dd>{status.featureCatalogue?.version ?? "-"}</dd>
+        <dt>Portrayal</dt>
+        <dd>{status.portrayalCatalogue?.version ?? "MVP fallback"}</dd>
+      </dl>
+      {status.warning ? <p>{status.warning}</p> : null}
+    </div>
+  );
+}
+
 function FeaturePanel({ detail }: { detail: FeatureDetail }) {
   return (
     <div className="feature-detail">
@@ -215,6 +246,8 @@ function FeaturePanel({ detail }: { detail: FeatureDetail }) {
         <dd>{detail.featureInstanceId}</dd>
         <dt>Type</dt>
         <dd>{detail.featureTypeCode}</dd>
+        <dt>Catalogue</dt>
+        <dd>{detail.catalogueSnapshotId ?? "snapshot 미연결"}</dd>
         <dt>Geometry</dt>
         <dd>{detail.geometryType ?? "-"}</dd>
         <dt>FOID</dt>
