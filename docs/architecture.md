@@ -16,11 +16,28 @@ S101DashboardApp23 / Phase27BatchIngestRunner
 
 The Web Viewer is a read-side application. It consumes parser output already stored in `s100_dev`; it does not replace parser, canonical persistence, validation, geometry repair, or projection building.
 
+## DB Access Principle
+
+The required access path is:
+
+```text
+canonical
+  -> projection
+  -> API
+  -> WebViewer
+```
+
+`canonical` is the parser source of truth. `projection` is the service-ready read model. `WebViewer` consumes projection through the API.
+
+The browser UI must not assemble map features directly from `canonical.feature_instance`, `canonical.feature_attribute_value`, `canonical.spatial_record`, `canonical.spatial_reference`, `canonical.curve_segment`, or `canonical.surface_boundary`.
+
+The API may reference canonical tables only for feature detail evidence, QA summaries, validation context, relationship checks, topology checks, and catalogue-enriched inspector responses. These canonical reads must not become the default map rendering path.
+
 ## Runtime Components
 
 | Component | Responsibility |
 | --- | --- |
-| `apps/api` | Reads `s100_dev`, joins projection/canonical/catalogue data, returns JSON/GeoJSON. |
+| `apps/api` | Reads projection first, adds catalogue/QA/detail context when needed, returns JSON/GeoJSON. |
 | `apps/web` | Browser UI, MapLibre map, filters, feature inspector, QA panels. |
 | `packages/catalogue` | Parses and caches Feature Catalogue and Portrayal Catalogue metadata. |
 | `packages/shared` | Shared TypeScript contracts for datasets, features, QA, and catalogue metadata. |
@@ -31,7 +48,7 @@ The Web Viewer is a read-side application. It consumes parser output already sto
 2. Parser/dashboard performs safe `derived_geometry` repair.
 3. Projection builder writes current read models.
 4. API reads projection tables for map display.
-5. API enriches feature output with Feature Catalogue names and attribute metadata.
+5. API enriches detail responses with Feature Catalogue names and attribute metadata.
 6. UI renders features with Portrayal Catalogue-derived styling where available.
 7. UI shows QA state from canonical/projection/validation checks.
 

@@ -2,13 +2,13 @@
 
 S-101 V2.0 Web Viewer is the planned browser viewer for S-100/S-101 hydrographic datasets parsed by the S100 Parser project.
 
-The viewer will use the existing local parser database:
+The viewer uses the existing local parser database:
 
 ```text
 Host=127.0.0.1;Port=55432;Database=s100_dev;Username=s100_dev;Password=CHANGE_ME_LOCAL_ONLY
 ```
 
-It reads canonical, validation, audit, and projection data created by `S101DashboardApp23.exe` and `Phase27BatchIngestRunner.exe`. The viewer does not replace the parser or write canonical data.
+It reads canonical, validation, audit, and projection data created by `S101DashboardApp23.exe` and `Phase27BatchIngestRunner.exe`. The viewer does not replace the parser and does not write canonical data.
 
 ## Source Inputs
 
@@ -18,6 +18,40 @@ It reads canonical, validation, audit, and projection data created by `S101Dashb
 | Feature Catalogue archive | `D:\dev\s100-parser\_2026-08-21 S100 문서 및 파서\101_Feature_Catalogue_2.0.0.xml.signature.zip` |
 | Portrayal Catalogue archive | `D:\dev\s100-parser\_2026-08-21 S100 문서 및 파서\101_Portrayal_Catalogue_2.0.0.zip.signature.zip` |
 | Parser DB | `s100_dev` Docker PostgreSQL/PostGIS on port `55432` |
+
+## DB Access Principle
+
+The most important rule is that the Web Viewer consumes service-ready projection data. It must not directly assemble features from canonical tables in the browser.
+
+```text
+canonical
+  -> projection
+  -> API
+  -> WebViewer
+```
+
+Roles:
+
+- `canonical` is the parser source of truth.
+- `projection` is the service read model.
+- `API` is the only layer that may combine projection, catalogue, validation, and selected canonical evidence.
+- `WebViewer` is a projection consumer.
+
+Forbidden default behavior:
+
+- building map features directly from `canonical.feature_instance`;
+- building display attributes directly from canonical attribute tables in the browser;
+- rendering geometry by joining `canonical.spatial_record`, `canonical.spatial_reference`, `canonical.curve_segment`, or `canonical.surface_boundary`;
+- exposing broad canonical joins as generic viewer endpoints.
+
+Allowed API-internal canonical reads:
+
+- one-feature detail inspector;
+- QA summary and validation diagnostics;
+- relationship and topology proof counts;
+- catalogue-enriched detail responses.
+
+Map rendering must start from `projection.s101_feature_geojson` or `projection.s101_feature_current`.
 
 ## Target Stack
 
@@ -53,7 +87,7 @@ D:\dev\WebViewer
 ## Viewer Flow
 
 ```text
-s100_dev projection/canonical DB
+s100_dev projection read models
   -> WebViewer API
   -> Feature Catalogue name/value mapping
   -> Portrayal Catalogue style mapping
@@ -84,4 +118,4 @@ The first useful version is complete when:
 
 ## Current Status
 
-This repository currently contains the agreed development documentation. Implementation will start after this baseline is committed.
+This repository currently contains the agreed development documentation. Implementation starts from this projection-first API boundary.

@@ -21,6 +21,35 @@ The DB runs in Docker container `s100_dev_postgis` and stores data in Docker vol
 | 5 | `validation.*` | Validation status and issue display. |
 | 6 | `audit.*` | Parser/projection run history. |
 
+## Mandatory Access Boundary
+
+The viewer access path is:
+
+```text
+canonical
+  -> projection
+  -> API
+  -> WebViewer
+```
+
+`canonical.*` is not the viewer service model. It is the parser source of truth. `projection.*` is the service read model.
+
+Forbidden default behavior:
+
+- building map features by joining `canonical.feature_instance` to `canonical.spatial_record`;
+- building display attributes directly from canonical attribute tables in the browser;
+- using `canonical.spatial_reference`, `canonical.curve_segment`, or `canonical.surface_boundary` as the primary rendering source;
+- exposing broad canonical table joins as generic viewer endpoints.
+
+Allowed API-internal canonical reads:
+
+- feature inspector evidence for one selected feature;
+- QA summary and validation diagnostics;
+- relationship and topology proof counts;
+- catalogue-enriched detail responses.
+
+Map and list endpoints must prefer `projection.s101_feature_geojson`, `projection.s101_feature_current`, and `projection.s101_dataset_current`.
+
 ## API Endpoints
 
 | Endpoint | Purpose |
@@ -29,7 +58,7 @@ The DB runs in Docker container `s100_dev_postgis` and stores data in Docker vol
 | `GET /api/datasets` | Parsed dataset list. |
 | `GET /api/datasets/:datasetId/versions` | Dataset versions from `canonical.dataset_version`. |
 | `GET /api/features` | GeoJSON FeatureCollection from `projection.s101_feature_geojson`. |
-| `GET /api/features/:featureInstanceId` | Feature detail, attributes, associations, and geometry summary. |
+| `GET /api/features/:featureInstanceId` | Feature detail, attributes, associations, and geometry summary. The API may use canonical tables internally for this detail view. |
 | `GET /api/catalogue/features` | Feature Catalogue feature type metadata. |
 | `GET /api/catalogue/attributes` | Feature Catalogue attribute metadata. |
 | `GET /api/qa/summary` | Dashboard-equivalent QA counts. |
@@ -76,3 +105,4 @@ The DB runs in Docker container `s100_dev_postgis` and stores data in Docker vol
 - Use bbox filtering for map queries.
 - Return `projection.s101_feature_geojson.geometry_geojson` directly when possible.
 - Use prepared parameters; do not interpolate user input into SQL.
+- Keep canonical joins inside API services; never require the WebViewer UI to understand canonical table topology.

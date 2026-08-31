@@ -12,6 +12,25 @@ D:\dev\s100-parser\_2026-08-21 S100 문서 및 파서
 
 The viewer must be catalogue-aware, projection-driven, and QA-visible. It must not bypass the canonical model created by the parser.
 
+## Core DB Access Principle
+
+The required data path is:
+
+```text
+canonical
+  -> projection
+  -> API
+  -> WebViewer
+```
+
+This means:
+
+- `canonical` is the source of truth;
+- `projection` is the service read model;
+- `WebViewer` consumes projection through API endpoints;
+- the UI must not directly assemble features from canonical feature, attribute, spatial, or topology tables;
+- the API may read canonical tables only for detail panels, QA evidence, and validation context.
+
 ## Development Order
 
 1. Confirm source material paths.
@@ -57,6 +76,7 @@ Do not commit extracted proprietary or large catalogue artifacts unless licensin
 
 - Do not duplicate parser logic in the viewer.
 - Do not write to `canonical.*` from the viewer.
+- Do not use canonical joins as the primary map/list rendering path.
 - Treat `projection.*` as rebuildable read models.
 - Keep DB credentials in `.env`; commit only `.env.example`.
 - Keep large S-101 datasets and generated catalogue caches out of Git unless explicitly approved.
