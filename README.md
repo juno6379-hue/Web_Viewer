@@ -123,9 +123,38 @@ D:\dev\WebViewer
 | projection GeoJSON API | 완료 |
 | feature inspector API | 완료 |
 | QA summary API | 완료 |
+| Feature Inspector 탭 UI | 완료 |
+| QA Dashboard 그룹 UI | 완료 |
 | Feature Catalogue snapshot/cache model | 진행 중 |
 | Portrayal engine interface | 진행 중 |
 | Portrayal Catalogue Lua engine | 다음 단계 |
+
+## Feature Inspector
+
+feature click panel은 개발/QA 도구로 사용할 수 있도록 탭 구조로 구성합니다.
+
+| 탭 | 내용 |
+| --- | --- |
+| Overview | Feature Name, Feature Code, FOID, RCID, RVER, RUIN, Dataset, Edition, Update |
+| Attributes | Simple Attribute, Complex Attribute |
+| Associations | Feature Association, Information Association, Role, Target |
+| Spatial | Spatial Type, Spatial Record, Geometry Type, SRID, BBOX, Topology |
+| Raw Record | 원본 record locator, raw hash, byte offset, decode status |
+| Validation | 해당 feature 관련 validation issue |
+
+지도와 목록은 projection을 사용하고, Inspector에서 선택한 feature 1건의 상세 근거만 API 내부에서 canonical과 validation schema를 제한 조회합니다.
+
+## QA Dashboard
+
+QA Dashboard는 다음 그룹으로 표시합니다.
+
+| 그룹 | 항목 |
+| --- | --- |
+| Integrity | feature instance link, information instance link, attribute owner, complex attribute owner, association source/target |
+| Spatial | spatial reference cross-version, curve endpoint, surface boundary, topology |
+| Geometry | invalid geometry, null geometry, null no source data, null invalid topology |
+| Projection | canonical feature count, projected feature count, GeoJSON count, missing GeoJSON |
+| Validation | critical, error, warning, blocking |
 
 ## Feature Catalogue 처리 원칙
 

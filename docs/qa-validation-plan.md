@@ -6,16 +6,32 @@
 
 Web Viewer는 `S101DashboardApp23.exe`에서 확인하던 품질 기준을 웹 화면에서도 보여야 합니다. 단, Viewer는 검사 결과를 소비하고 표시하는 역할이며 canonical 정본을 수정하지 않습니다.
 
-## QA panel 구성
+## Feature Inspector panel 구성
 
-| Panel | 표시 내용 |
+Feature click panel은 단순 attribute 목록이 아니라 다음 탭 구조로 구성합니다.
+
+| 탭 | 표시 내용 |
 | --- | --- |
-| Dataset status | dataset id, latest version, edition, update number, profile, parser run status |
-| Projection status | projected feature count, GeoJSON count, missing GeoJSON count |
-| Geometry status | invalid geometry, null geometry, null-no-source, null-invalid-topology |
-| Relationship status | feature/information instance link, attribute owner, association source/target |
-| Topology status | spatial reference, curve endpoint, surface boundary cross-version |
-| Validation issues | critical/error/fatal 우선, warning 별도 |
+| Overview | Feature Name, Feature Code, FOID, RCID, RVER, RUIN, Dataset, Edition, Update |
+| Attributes | Simple Attribute, Complex Attribute |
+| Associations | Feature Association, Information Association, Role, Target |
+| Spatial | Spatial Type, Spatial Record, Geometry Type, SRID, BBOX, Topology |
+| Raw Record | 원본 record locator, raw record id, ordinal, byte offset, length, payload hash |
+| Validation | 해당 feature와 연결된 validation issue |
+
+지도/목록의 primary path는 projection을 유지합니다. Inspector 상세만 선택 feature 1건에 대해 API 내부에서 canonical과 validation schema를 제한적으로 참조합니다.
+
+## QA Dashboard 구성
+
+QA Dashboard는 다음 그룹으로 나누어 표시합니다.
+
+| 그룹 | 표시 내용 |
+| --- | --- |
+| Integrity | feature instance link, information instance link, attribute owner, complex attribute owner, association source/target |
+| Spatial | spatial reference cross-version, curve endpoint, surface boundary, topology |
+| Geometry | invalid geometry, null geometry, null-no-source, null-invalid-topology |
+| Projection | canonical feature count, projected feature count, GeoJSON count, missing GeoJSON count |
+| Validation | critical, error, warning, blocking |
 
 ## 통과 기준
 
@@ -33,6 +49,8 @@ Web Viewer는 `S101DashboardApp23.exe`에서 확인하던 품질 기준을 웹 �
 | Invalid derived geometry | 0 |
 | Missing GeoJSON | 0 |
 | Null projection geometry | 0 |
+| Critical validation issues | 0 |
+| Error validation issues | 0 |
 | Blocking validation issues | 0 |
 
 Null derived geometry는 원인 분류가 있고 projection/GeoJSON 누락을 만들지 않는 경우에만 허용 가능한 상태로 표시합니다.

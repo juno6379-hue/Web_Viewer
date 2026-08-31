@@ -163,8 +163,14 @@ export function registerRoutes(app: FastifyInstance) {
       foid_agen: number | null;
       foid_fidn: string | null;
       foid_fids: number | null;
+      rcid: number | null;
+      rver: number | null;
+      ruin: number | null;
+      dsnm: string | null;
+      edition_number: number | null;
+      update_number: number | null;
       lifecycle_status: string;
-      attributes: Record<string, unknown>;
+      attributes: unknown;
       geometry_type: string | null;
     }>(
       `
@@ -177,10 +183,20 @@ export function registerRoutes(app: FastifyInstance) {
         fc.foid_agen,
         fc.foid_fidn::text,
         fc.foid_fids,
+        fr.rcid,
+        fr.rver,
+        fr.ruin,
+        dc.dsnm,
+        dc.edition_number,
+        dc.update_number,
         fc.lifecycle_status,
         fc.attributes,
         CASE WHEN fc.geometry IS NULL THEN NULL ELSE GeometryType(fc.geometry) END AS geometry_type
       FROM projection.s101_feature_current fc
+      JOIN canonical.feature_record fr ON fr.feature_record_id = fc.feature_record_id
+      LEFT JOIN projection.s101_dataset_current dc
+        ON dc.dataset_id = fc.dataset_id
+       AND dc.dataset_version_id = fc.dataset_version_id
       WHERE fc.feature_instance_id = $1
       `,
       [params.featureInstanceId]
@@ -191,16 +207,287 @@ export function registerRoutes(app: FastifyInstance) {
       Object.assign(error, { statusCode: 404 });
       throw error;
     }
+    const [simpleAttributes, complexAttributes, associations, spatial, rawRecord, validationIssues] = await Promise.all([
+      query<{
+        id: string;
+        code: number;
+        name: string | null;
+        atix: number;
+        paix: number | null;
+        atin: number;
+        value_type: string | null;
+        value: unknown;
+        raw_value: string | null;
+      }>(
+        `
+        SELECT
+          fav.feature_attribute_value_id::text AS id,
+          fav.natc AS code,
+          fav.catalogue_name AS name,
+          fav.atix,
+          fav.paix,
+          fav.atin,
+          fav.value_type,
+          COALESCE(
+            to_jsonb(fav.value_text),
+            to_jsonb(fav.value_integer),
+            to_jsonb(fav.value_numeric),
+            to_jsonb(fav.value_boolean),
+            to_jsonb(fav.value_date),
+            to_jsonb(fav.raw_value)
+          ) AS value,
+          fav.raw_value
+        FROM canonical.feature_attribute_value fav
+        WHERE fav.feature_record_id = $1
+        ORDER BY fav.atix
+        `,
+        [row.feature_record_id]
+      ),
+      query<{
+        id: string;
+        code: number;
+        name: string | null;
+        atix: number;
+        paix: number | null;
+        occurrence_ordinal: number;
+      }>(
+        `
+        SELECT
+          cai.complex_attribute_instance_id::text AS id,
+          cai.natc AS code,
+          cai.catalogue_name AS name,
+          cai.atix,
+          cai.paix,
+          cai.occurrence_ordinal
+        FROM canonical.complex_attribute_instance cai
+        WHERE cai.feature_record_id = $1
+        ORDER BY cai.atix, cai.occurrence_ordinal
+        `,
+        [row.feature_record_id]
+      ),
+      query<{
+        association_id: string;
+        association_type: string;
+        source_field: string;
+        role: string | null;
+        target_type: "feature" | "information" | null;
+        target_id: string | null;
+        target_record_id: string | null;
+      }>(
+        `
+        SELECT
+          a.association_id::text,
+          a.association_type,
+          a.source_field,
+          am.member_role AS role,
+          CASE
+            WHEN am.target_feature_record_id IS NOT NULL THEN 'feature'
+            WHEN am.target_information_record_id IS NOT NULL THEN 'information'
+            ELSE NULL
+          END AS target_type,
+          COALESCE(tf.feature_instance_id::text, ti.information_instance_id::text) AS target_id,
+          COALESCE(am.target_feature_record_id::text, am.target_information_record_id::text) AS target_record_id
+        FROM canonical.association a
+        LEFT JOIN canonical.association_member am ON am.association_id = a.association_id
+        LEFT JOIN canonical.feature_record tf ON tf.feature_record_id = am.target_feature_record_id
+        LEFT JOIN canonical.information_record ti ON ti.information_record_id = am.target_information_record_id
+        WHERE a.source_feature_record_id = $1
+        ORDER BY a.association_id, am.member_ordinal
+        `,
+        [row.feature_record_id]
+      ),
+      query<{
+        spatial_reference_id: string;
+        spatial_record_id: string;
+        spatial_type: string;
+        rcnm: number;
+        rcid: number;
+        rver: number;
+        ruin: number;
+        rrnm: number;
+        rrid: number;
+        orientation: number | null;
+        geometry_type: string | null;
+        srid: number | null;
+        bbox: unknown;
+        topology: string;
+      }>(
+        `
+        SELECT
+          sref.spatial_reference_id::text,
+          sr.spatial_record_id::text,
+          sr.spatial_type,
+          sr.rcnm,
+          sr.rcid,
+          sr.rver,
+          sr.ruin,
+          sref.rrnm,
+          sref.rrid,
+          sref.ornt AS orientation,
+          CASE WHEN sr.derived_geometry IS NULL THEN NULL ELSE GeometryType(sr.derived_geometry) END AS geometry_type,
+          CASE WHEN sr.derived_geometry IS NULL THEN NULL ELSE ST_SRID(sr.derived_geometry) END AS srid,
+          CASE WHEN sr.derived_geometry IS NULL THEN NULL ELSE ST_AsGeoJSON(ST_Envelope(sr.derived_geometry))::jsonb END AS bbox,
+          CASE
+            WHEN sr.dataset_version_id <> $2 THEN 'cross-version'
+            WHEN sr.derived_geometry IS NULL THEN 'null geometry'
+            WHEN NOT ST_IsValid(sr.derived_geometry) THEN 'invalid geometry'
+            ELSE 'ok'
+          END AS topology
+        FROM canonical.spatial_reference sref
+        JOIN canonical.spatial_record sr ON sr.spatial_record_id = sref.spatial_record_id
+        WHERE sref.feature_record_id = $1
+        ORDER BY sref.ordinal
+        `,
+        [row.feature_record_id, row.dataset_version_id]
+      ),
+      query<{
+        raw_record_id: string;
+        exchange_resource_id: string;
+        record_ordinal: number;
+        byte_offset: string;
+        record_length: number;
+        field_tag: string | null;
+        raw_payload_hash: string | null;
+        decode_status: string;
+      }>(
+        `
+        SELECT
+          rr.raw_record_id::text,
+          rr.exchange_resource_id::text,
+          rr.record_ordinal,
+          rr.byte_offset::text,
+          rr.record_length,
+          rr.field_tag,
+          rr.raw_payload_hash,
+          rr.decode_status
+        FROM canonical.feature_record fr
+        JOIN raw.raw_record rr ON rr.raw_record_id = fr.raw_record_id
+        WHERE fr.feature_record_id = $1
+        `,
+        [row.feature_record_id]
+      ),
+      query<{
+        validation_issue_id: string;
+        rule_id: string;
+        severity: string;
+        target_schema: string | null;
+        target_table: string | null;
+        target_id: string | null;
+        field_locator: string | null;
+        message: string;
+      }>(
+        `
+        SELECT
+          vi.validation_issue_id::text,
+          vi.rule_id,
+          vi.severity,
+          vi.target_schema,
+          vi.target_table,
+          vi.target_id::text,
+          vi.field_locator,
+          vi.message
+        FROM canonical.feature_record fr
+        JOIN validation.conformance_status cs ON cs.dataset_version_id = fr.dataset_version_id
+        JOIN validation.validation_issue vi ON vi.validation_run_id = cs.validation_run_id
+        WHERE fr.feature_record_id = $1
+          AND (
+            vi.raw_record_id = fr.raw_record_id
+            OR (vi.target_schema = 'canonical' AND vi.target_table = 'feature_record' AND vi.target_id = fr.feature_record_id)
+            OR (vi.target_schema = 'canonical' AND vi.target_table = 'feature_instance' AND vi.target_id = fr.feature_instance_id)
+          )
+        ORDER BY
+          CASE vi.severity WHEN 'fatal' THEN 1 WHEN 'error' THEN 2 WHEN 'warning' THEN 3 ELSE 4 END,
+          vi.validation_issue_id
+        LIMIT 100
+        `,
+        [row.feature_record_id]
+      )
+    ]);
     const detail: FeatureDetail = {
       featureInstanceId: row.feature_instance_id,
       datasetId: row.dataset_id,
       datasetVersionId: row.dataset_version_id,
       featureRecordId: row.feature_record_id,
       catalogueSnapshotId: null,
+      featureName: null,
       featureTypeCode: row.feature_type_code,
       foid: { agen: row.foid_agen, fidn: row.foid_fidn, fids: row.foid_fids },
+      rcid: row.rcid,
+      rver: row.rver,
+      ruin: row.ruin,
+      dataset: {
+        dsnm: row.dsnm,
+        editionNumber: row.edition_number,
+        updateNumber: row.update_number
+      },
       lifecycleStatus: row.lifecycle_status,
       attributes: row.attributes,
+      simpleAttributes: simpleAttributes.rows.map((attribute) => ({
+        id: attribute.id,
+        code: attribute.code,
+        name: attribute.name,
+        atix: attribute.atix,
+        paix: attribute.paix,
+        atin: attribute.atin,
+        valueType: attribute.value_type,
+        value: attribute.value,
+        rawValue: attribute.raw_value
+      })),
+      complexAttributes: complexAttributes.rows.map((attribute) => ({
+        id: attribute.id,
+        code: attribute.code,
+        name: attribute.name,
+        atix: attribute.atix,
+        paix: attribute.paix,
+        occurrenceOrdinal: attribute.occurrence_ordinal
+      })),
+      associations: associations.rows.map((association) => ({
+        associationId: association.association_id,
+        associationType: association.association_type,
+        sourceField: association.source_field,
+        role: association.role,
+        targetType: association.target_type,
+        targetId: association.target_id,
+        targetRecordId: association.target_record_id
+      })),
+      spatial: spatial.rows.map((item) => ({
+        spatialReferenceId: item.spatial_reference_id,
+        spatialRecordId: item.spatial_record_id,
+        spatialType: item.spatial_type,
+        rcnm: item.rcnm,
+        rcid: item.rcid,
+        rver: item.rver,
+        ruin: item.ruin,
+        rrnm: item.rrnm,
+        rrid: item.rrid,
+        orientation: item.orientation,
+        geometryType: item.geometry_type,
+        srid: item.srid,
+        bbox: item.bbox,
+        topology: item.topology
+      })),
+      rawRecord: rawRecord.rows[0]
+        ? {
+            rawRecordId: rawRecord.rows[0].raw_record_id,
+            exchangeResourceId: rawRecord.rows[0].exchange_resource_id,
+            recordOrdinal: rawRecord.rows[0].record_ordinal,
+            byteOffset: rawRecord.rows[0].byte_offset,
+            recordLength: rawRecord.rows[0].record_length,
+            fieldTag: rawRecord.rows[0].field_tag,
+            rawPayloadHash: rawRecord.rows[0].raw_payload_hash,
+            decodeStatus: rawRecord.rows[0].decode_status
+          }
+        : null,
+      validationIssues: validationIssues.rows.map((issue) => ({
+        validationIssueId: issue.validation_issue_id,
+        ruleId: issue.rule_id,
+        severity: issue.severity,
+        targetSchema: issue.target_schema,
+        targetTable: issue.target_table,
+        targetId: issue.target_id,
+        fieldLocator: issue.field_locator,
+        message: issue.message
+      })),
       geometryType: row.geometry_type
     };
     return detail;
@@ -285,9 +572,25 @@ export function registerRoutes(app: FastifyInstance) {
         (SELECT COUNT(*)::int FROM sr WHERE derived_geometry IS NULL) AS "nullGeometry",
         (SELECT COALESCE(SUM(no_source), 0)::int FROM null_classified) AS "nullNoSourceData",
         (SELECT COUNT(*)::int - COALESCE(SUM(no_source), 0)::int FROM null_classified) AS "nullInvalidTopology",
+        (SELECT COUNT(*)::int FROM canonical.feature_record WHERE dataset_version_id = $2) AS "canonicalFeatureCount",
         (SELECT COUNT(*)::int FROM projection.s101_feature_current WHERE dataset_id = $1 AND dataset_version_id = $2) AS "projectedFeatures",
         (SELECT COUNT(*)::int FROM projection.s101_feature_geojson WHERE dataset_id = $1) AS "geoJsonRows",
         (SELECT COUNT(*)::int FROM projection.s101_feature_current fc LEFT JOIN projection.s101_feature_geojson gj ON gj.feature_instance_id = fc.feature_instance_id WHERE fc.dataset_id = $1 AND fc.dataset_version_id = $2 AND gj.feature_instance_id IS NULL) AS "missingGeoJson",
+        (SELECT COUNT(*)::int
+         FROM validation.conformance_status cs
+         JOIN validation.validation_issue vi ON vi.validation_run_id = cs.validation_run_id
+         WHERE cs.dataset_version_id = $2
+           AND lower(vi.severity) = 'fatal') AS "validationCritical",
+        (SELECT COUNT(*)::int
+         FROM validation.conformance_status cs
+         JOIN validation.validation_issue vi ON vi.validation_run_id = cs.validation_run_id
+         WHERE cs.dataset_version_id = $2
+           AND lower(vi.severity) = 'error') AS "validationError",
+        (SELECT COUNT(*)::int
+         FROM validation.conformance_status cs
+         JOIN validation.validation_issue vi ON vi.validation_run_id = cs.validation_run_id
+         WHERE cs.dataset_version_id = $2
+           AND lower(vi.severity) = 'warning') AS "validationWarning",
         (SELECT COUNT(*)::int
          FROM validation.conformance_status cs
          JOIN validation.validation_issue vi ON vi.validation_run_id = cs.validation_run_id

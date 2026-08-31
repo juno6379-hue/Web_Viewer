@@ -98,6 +98,24 @@ select {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.qa-groups,
+.stack {
+  display: grid;
+  gap: 12px;
+}
+
+.qa-group {
+  display: grid;
+  gap: 8px;
+}
+
+.qa-group h3,
+.stack h3 {
+  margin: 0;
+  color: #334155;
+  font-size: 13px;
+}
+
 .qa-grid > div {
   min-height: 54px;
   border: 1px solid #d9e2ef;
@@ -144,6 +162,88 @@ select {
   background: #0f172a;
   color: #e2e8f0;
   font-size: 12px;
+}
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tab {
+  min-height: 32px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 0 9px;
+  background: #ffffff;
+  color: #334155;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.tab.active {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.tab-panel {
+  margin-top: 10px;
+}
+
+.inspector-grid {
+  grid-template-columns: 110px minmax(0, 1fr);
+}
+
+.table-scroll {
+  max-width: 100%;
+  overflow: auto;
+  border: 1px solid #d9e2ef;
+  border-radius: 6px;
+}
+
+table {
+  width: 100%;
+  min-width: 520px;
+  border-collapse: collapse;
+  background: #ffffff;
+  font-size: 12px;
+}
+
+th,
+td {
+  border-bottom: 1px solid #e2e8f0;
+  padding: 8px;
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+th {
+  background: #f8fafc;
+  color: #475569;
+  font-weight: 700;
+}
+
+.issue {
+  border: 1px solid #d9e2ef;
+  border-radius: 6px;
+  padding: 10px;
+  background: #f8fafc;
+}
+
+.issue p {
+  margin: 6px 0;
+  color: #334155;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.issue span {
+  color: #64748b;
+  font-size: 11px;
+  overflow-wrap: anywhere;
 }
 
 .map-area {

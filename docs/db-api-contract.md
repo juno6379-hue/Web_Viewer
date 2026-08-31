@@ -77,7 +77,7 @@ canonical
 | `GET /api/health/db` | 구현 | `s100_dev/s100_dev` 연결 확인 |
 | `GET /api/datasets` | 구현 | `projection.s101_dataset_current`와 `projection.s101_feature_current` 사용 |
 | `GET /api/features` | 구현 | `projection.s101_feature_geojson` 중심, bbox/filter/limit 지원 |
-| `GET /api/features/:featureInstanceId` | 구현 | `projection.s101_feature_current` 중심 상세 |
+| `GET /api/features/:featureInstanceId` | 구현 | `projection.s101_feature_current` 중심 상세와 선택 feature 1건의 canonical/validation 근거 |
 | `GET /api/qa/summary` | 구현 | API 내부에서 dataset version 범위로 QA count 계산 |
 | `GET /api/datasets/:datasetId/versions` | 예정 | projection view 또는 제한된 canonical read 필요 |
 | `GET /api/catalogue/features` | 예정 | catalogue cache 구현 후 연결 |
@@ -121,6 +121,19 @@ feature/attribute 해석 key는 `catalogueSnapshotId + code`입니다. API는 pa
 | `featureTypeCode` | 아니오 | S-101 feature type code |
 | `limit` | 아니오 | 최대 row 수 |
 
+## feature 상세 응답 구조
+
+`GET /api/features/:featureInstanceId`는 Inspector 탭에 맞춰 다음 영역을 반환합니다.
+
+| 영역 | 주요 필드 | 조회 경계 |
+| --- | --- | --- |
+| Overview | feature name/code, FOID, RCID, RVER, RUIN, dataset, edition, update | projection 우선, canonical feature record 보강 |
+| Attributes | simple attribute, complex attribute | 선택 feature 1건의 canonical attribute |
+| Associations | association type, role, target feature/information | 선택 feature 1건의 canonical association |
+| Spatial | spatial type, spatial record, geometry type, SRID, BBOX, topology | 선택 feature 1건의 canonical spatial reference |
+| Raw Record | raw record id, resource, ordinal, byte offset, payload hash | 선택 feature 1건의 raw locator |
+| Validation | rule id, severity, target, message | 선택 feature 관련 validation issue |
+
 ## QA summary 응답 예시
 
 ```json
@@ -138,9 +151,13 @@ feature/attribute 해석 key는 `catalogueSnapshotId + code`입니다. API는 pa
   "nullGeometry": 14,
   "nullNoSourceData": 14,
   "nullInvalidTopology": 0,
+  "canonicalFeatureCount": 25,
   "projectedFeatures": 11,
   "geoJsonRows": 11,
   "missingGeoJson": 0,
+  "validationCritical": 0,
+  "validationError": 0,
+  "validationWarning": 0,
   "blockingValidationIssues": 0
 }
 ```

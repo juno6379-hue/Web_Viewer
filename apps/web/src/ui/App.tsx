@@ -199,26 +199,71 @@ export function App() {
 }
 
 function QaPanel({ qa }: { qa: QaSummary }) {
-  const rows = [
-    ["invalid geometry", qa.invalidGeometry],
-    ["null geometry", qa.nullGeometry],
-    ["null no source", qa.nullNoSourceData],
-    ["null topology", qa.nullInvalidTopology],
-    ["projected", qa.projectedFeatures],
-    ["GeoJSON", qa.geoJsonRows],
-    ["missing GeoJSON", qa.missingGeoJson],
-    ["blocking issue", qa.blockingValidationIssues]
+  const groups = [
+    {
+      title: "Integrity",
+      rows: [
+        ["feature instance link", qa.featureRecordWithoutInstance],
+        ["information instance link", qa.informationRecordWithoutInstance],
+        ["attribute owner", qa.attributeOwnerMissing],
+        ["complex attribute owner", qa.complexAttributeOwnerMissing],
+        ["association source", qa.associationSourceMissing],
+        ["association target", qa.associationTargetMissing]
+      ]
+    },
+    {
+      title: "Spatial",
+      rows: [
+        ["spatial reference cross-version", qa.spatialReferenceCrossVersion],
+        ["curve endpoint", qa.curveEndpointCrossVersion],
+        ["surface boundary", qa.surfaceBoundaryCrossVersion]
+      ]
+    },
+    {
+      title: "Geometry",
+      rows: [
+        ["invalid geometry", qa.invalidGeometry],
+        ["null geometry", qa.nullGeometry],
+        ["null no source data", qa.nullNoSourceData],
+        ["null invalid topology", qa.nullInvalidTopology]
+      ]
+    },
+    {
+      title: "Projection",
+      rows: [
+        ["canonical feature count", qa.canonicalFeatureCount],
+        ["projected feature count", qa.projectedFeatures],
+        ["GeoJSON count", qa.geoJsonRows],
+        ["missing GeoJSON", qa.missingGeoJson]
+      ]
+    },
+    {
+      title: "Validation",
+      rows: [
+        ["critical", qa.validationCritical],
+        ["error", qa.validationError],
+        ["warning", qa.validationWarning],
+        ["blocking", qa.blockingValidationIssues]
+      ]
+    }
   ];
 
   return (
-    <dl className="qa-grid">
-      {rows.map(([label, value]) => (
-        <div key={label}>
-          <dt>{label}</dt>
-          <dd className={Number(value) === 0 ? "ok" : "warn"}>{Number(value).toLocaleString()}</dd>
-        </div>
+    <div className="qa-groups">
+      {groups.map((group) => (
+        <section className="qa-group" key={group.title}>
+          <h3>{group.title}</h3>
+          <dl className="qa-grid">
+            {group.rows.map(([label, value]) => (
+              <div key={label}>
+                <dt>{label}</dt>
+                <dd className={Number(value) === 0 ? "ok" : "warn"}>{Number(value).toLocaleString()}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
       ))}
-    </dl>
+    </div>
   );
 }
 
@@ -239,25 +284,264 @@ function CataloguePanel({ status }: { status: CatalogueRuntimeStatus }) {
 }
 
 function FeaturePanel({ detail }: { detail: FeatureDetail }) {
+  const [activeTab, setActiveTab] = useState("overview");
+  const tabs = [
+    ["overview", "Overview"],
+    ["attributes", "Attributes"],
+    ["associations", "Associations"],
+    ["spatial", "Spatial"],
+    ["raw", "Raw Record"],
+    ["validation", "Validation"]
+  ];
+
   return (
     <div className="feature-detail">
-      <dl className="meta-grid">
-        <dt>Instance</dt>
-        <dd>{detail.featureInstanceId}</dd>
-        <dt>Type</dt>
-        <dd>{detail.featureTypeCode}</dd>
-        <dt>Catalogue</dt>
-        <dd>{detail.catalogueSnapshotId ?? "snapshot 미연결"}</dd>
-        <dt>Geometry</dt>
-        <dd>{detail.geometryType ?? "-"}</dd>
-        <dt>FOID</dt>
-        <dd>
-          {detail.foid.agen ?? "-"} / {detail.foid.fidn ?? "-"} / {detail.foid.fids ?? "-"}
-        </dd>
-      </dl>
+      <div className="tabs" role="tablist" aria-label="Feature Inspector">
+        {tabs.map(([id, label]) => (
+          <button
+            aria-selected={activeTab === id}
+            className={activeTab === id ? "tab active" : "tab"}
+            key={id}
+            onClick={() => setActiveTab(id)}
+            role="tab"
+            type="button"
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="tab-panel">
+        {activeTab === "overview" ? <FeatureOverview detail={detail} /> : null}
+        {activeTab === "attributes" ? <FeatureAttributes detail={detail} /> : null}
+        {activeTab === "associations" ? <FeatureAssociations detail={detail} /> : null}
+        {activeTab === "spatial" ? <FeatureSpatial detail={detail} /> : null}
+        {activeTab === "raw" ? <FeatureRawRecord detail={detail} /> : null}
+        {activeTab === "validation" ? <FeatureValidation detail={detail} /> : null}
+      </div>
+    </div>
+  );
+}
+
+function FeatureOverview({ detail }: { detail: FeatureDetail }) {
+  return (
+    <dl className="meta-grid inspector-grid">
+      <dt>Feature Name</dt>
+      <dd>{detail.featureName ?? "catalogue 미연결"}</dd>
+      <dt>Feature Code</dt>
+      <dd>{detail.featureTypeCode}</dd>
+      <dt>FOID</dt>
+      <dd>
+        {detail.foid.agen ?? "-"} / {detail.foid.fidn ?? "-"} / {detail.foid.fids ?? "-"}
+      </dd>
+      <dt>RCID</dt>
+      <dd>{detail.rcid ?? "-"}</dd>
+      <dt>RVER</dt>
+      <dd>{detail.rver ?? "-"}</dd>
+      <dt>RUIN</dt>
+      <dd>{detail.ruin ?? "-"}</dd>
+      <dt>Dataset</dt>
+      <dd>{detail.dataset.dsnm ?? detail.datasetId}</dd>
+      <dt>Edition</dt>
+      <dd>{detail.dataset.editionNumber ?? "-"}</dd>
+      <dt>Update</dt>
+      <dd>{detail.dataset.updateNumber ?? "-"}</dd>
+      <dt>Catalogue</dt>
+      <dd>{detail.catalogueSnapshotId ?? "snapshot 미연결"}</dd>
+    </dl>
+  );
+}
+
+function FeatureAttributes({ detail }: { detail: FeatureDetail }) {
+  return (
+    <div className="stack">
+      <h3>Simple Attribute</h3>
+      {detail.simpleAttributes.length > 0 ? (
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>Name</th>
+                <th>ATIX</th>
+                <th>PAIX</th>
+                <th>Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              {detail.simpleAttributes.map((attribute) => (
+                <tr key={attribute.id}>
+                  <td>{attribute.code}</td>
+                  <td>{attribute.name ?? "-"}</td>
+                  <td>{attribute.atix}</td>
+                  <td>{attribute.paix ?? "-"}</td>
+                  <td>{formatValue(attribute.value ?? attribute.rawValue)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="muted">simple attribute 없음</p>
+      )}
+      <h3>Complex Attribute</h3>
+      {detail.complexAttributes.length > 0 ? (
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>Name</th>
+                <th>ATIX</th>
+                <th>PAIX</th>
+                <th>Occurrence</th>
+              </tr>
+            </thead>
+            <tbody>
+              {detail.complexAttributes.map((attribute) => (
+                <tr key={attribute.id}>
+                  <td>{attribute.code}</td>
+                  <td>{attribute.name ?? "-"}</td>
+                  <td>{attribute.atix}</td>
+                  <td>{attribute.paix ?? "-"}</td>
+                  <td>{attribute.occurrenceOrdinal}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="muted">complex attribute 없음</p>
+      )}
+    </div>
+  );
+}
+
+function FeatureAssociations({ detail }: { detail: FeatureDetail }) {
+  if (detail.associations.length === 0) {
+    return <p className="muted">association 없음</p>;
+  }
+  return (
+    <div className="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Type</th>
+            <th>Role</th>
+            <th>Target</th>
+            <th>Record</th>
+          </tr>
+        </thead>
+        <tbody>
+          {detail.associations.map((association) => (
+            <tr key={`${association.associationId}-${association.targetRecordId ?? "source"}`}>
+              <td>{association.associationType}</td>
+              <td>{association.role ?? association.sourceField}</td>
+              <td>{association.targetType ? `${association.targetType}:${association.targetId ?? "-"}` : "-"}</td>
+              <td>{association.targetRecordId ?? "-"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function FeatureSpatial({ detail }: { detail: FeatureDetail }) {
+  if (detail.spatial.length === 0) {
+    return <p className="muted">spatial reference 없음</p>;
+  }
+  return (
+    <div className="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Spatial Type</th>
+            <th>Spatial Record</th>
+            <th>Geometry</th>
+            <th>SRID</th>
+            <th>BBOX</th>
+            <th>Topology</th>
+          </tr>
+        </thead>
+        <tbody>
+          {detail.spatial.map((spatial) => (
+            <tr key={spatial.spatialReferenceId}>
+              <td>{spatial.spatialType}</td>
+              <td>
+                {spatial.rcnm}:{spatial.rcid} / RVER {spatial.rver} / RUIN {spatial.ruin}
+              </td>
+              <td>{spatial.geometryType ?? "-"}</td>
+              <td>{spatial.srid ?? "-"}</td>
+              <td>{formatValue(spatial.bbox)}</td>
+              <td className={spatial.topology === "ok" ? "ok" : "warn"}>{spatial.topology}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function FeatureRawRecord({ detail }: { detail: FeatureDetail }) {
+  return (
+    <div className="stack">
+      {detail.rawRecord ? (
+        <dl className="meta-grid inspector-grid">
+          <dt>Raw Record</dt>
+          <dd>{detail.rawRecord.rawRecordId}</dd>
+          <dt>Resource</dt>
+          <dd>{detail.rawRecord.exchangeResourceId}</dd>
+          <dt>Ordinal</dt>
+          <dd>{detail.rawRecord.recordOrdinal}</dd>
+          <dt>Byte Offset</dt>
+          <dd>{detail.rawRecord.byteOffset}</dd>
+          <dt>Length</dt>
+          <dd>{detail.rawRecord.recordLength}</dd>
+          <dt>Field Tag</dt>
+          <dd>{detail.rawRecord.fieldTag ?? "-"}</dd>
+          <dt>Payload Hash</dt>
+          <dd>{detail.rawRecord.rawPayloadHash ?? "-"}</dd>
+          <dt>Decode</dt>
+          <dd>{detail.rawRecord.decodeStatus}</dd>
+        </dl>
+      ) : (
+        <p className="muted">raw record locator 없음</p>
+      )}
+      <h3>Projection Attributes</h3>
       <pre>{JSON.stringify(detail.attributes, null, 2)}</pre>
     </div>
   );
+}
+
+function FeatureValidation({ detail }: { detail: FeatureDetail }) {
+  if (detail.validationIssues.length === 0) {
+    return <p className="muted">해당 feature validation issue 없음</p>;
+  }
+  return (
+    <div className="stack">
+      {detail.validationIssues.map((issue) => (
+        <article className="issue" key={issue.validationIssueId}>
+          <strong className={issue.severity === "fatal" || issue.severity === "error" ? "warn" : ""}>
+            {issue.severity} / {issue.ruleId}
+          </strong>
+          <p>{issue.message}</p>
+          <span>
+            {issue.targetSchema ?? "-"} / {issue.targetTable ?? "-"} / {issue.targetId ?? "-"} / {issue.fieldLocator ?? "-"}
+          </span>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function formatValue(value: unknown) {
+  if (value === null || value === undefined) {
+    return "-";
+  }
+  if (typeof value === "object") {
+    return JSON.stringify(value);
+  }
+  return String(value);
 }
 
 function createBounds(collection: FeatureGeoJsonCollection) {
