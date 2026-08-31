@@ -58,12 +58,41 @@ canonical
 
 | 화면 | 내용 |
 | --- | --- |
+| Version bar | S-101, dataset, edition, update, product spec, FC/PC version, status |
 | 지도 | MapLibre 기반 S-101 feature layer |
 | Dataset panel | dataset/version 선택, parser/projection 상태 |
+| Search panel | feature code, FOID, attribute, dataset 기준 feature 검색과 지도 이동 |
 | Layer panel | feature type, geometry type, viewing group filter |
 | Feature inspector | feature identity, catalogue name, attribute, association, geometry summary |
 | QA panel | projection, GeoJSON, geometry, validation 상태 |
 | Catalogue panel | feature/attribute/portrayal lookup 상태 |
+
+## 지도 Layer 구조
+
+MapLibre layer는 S-101 의미 단위로 분리합니다.
+
+```text
+S101 Layers
+  Point
+  MultiPoint
+  Curve
+  Surface
+  Data Coverage
+  Validation Error
+  Selected Feature
+```
+
+MVP에서는 geometry 기준 fallback style을 적용합니다.
+
+| Layer | MVP 표현 |
+| --- | --- |
+| Point | circle |
+| MultiPoint | circle |
+| Curve | line |
+| Surface | fill |
+| Data Coverage | dataset bbox line |
+| Validation Error | error marker source |
+| Selected Feature | 선택 feature 강조 layer |
 
 ## 성능 원칙
 

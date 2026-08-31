@@ -10,6 +10,7 @@ body {
 }
 
 button,
+input,
 select {
   font: inherit;
 }
@@ -63,6 +64,15 @@ label {
 
 select {
   width: 100%;
+  min-height: 38px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 0 10px;
+  background: #ffffff;
+}
+
+input {
+  min-width: 0;
   min-height: 38px;
   border: 1px solid #cbd5e1;
   border-radius: 6px;
@@ -260,7 +270,7 @@ th {
   position: absolute;
   z-index: 2;
   left: 16px;
-  top: 16px;
+  top: 76px;
   max-width: min(620px, calc(100% - 32px));
   border: 1px solid rgba(15, 23, 42, 0.14);
   border-radius: 6px;
@@ -269,6 +279,86 @@ th {
   color: #334155;
   font-size: 13px;
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+}
+
+.version-bar {
+  position: absolute;
+  z-index: 3;
+  left: 16px;
+  right: 16px;
+  top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #334155;
+  font-size: 12px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+}
+
+.version-bar strong {
+  color: #0f172a;
+  font-size: 13px;
+}
+
+.search-panel {
+  position: absolute;
+  z-index: 3;
+  right: 16px;
+  top: 76px;
+  width: min(380px, calc(100% - 32px));
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  border-radius: 6px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+}
+
+.search-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.search-row button,
+.search-results button {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #334155;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.search-row button {
+  padding: 0 14px;
+}
+
+.search-results {
+  display: grid;
+  max-height: 240px;
+  overflow: auto;
+  gap: 6px;
+}
+
+.search-results button {
+  display: grid;
+  gap: 3px;
+  padding: 8px;
+  text-align: left;
+}
+
+.search-results span {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 400;
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 860px) {
@@ -285,5 +375,22 @@ th {
 
   .map-area {
     order: 1;
+  }
+
+  .version-bar,
+  .search-panel {
+    left: 10px;
+    right: 10px;
+    width: auto;
+  }
+
+  .status-bar {
+    left: 10px;
+    top: 122px;
+    max-width: calc(100% - 20px);
+  }
+
+  .search-panel {
+    top: 170px;
   }
 }

@@ -5,6 +5,7 @@ import type {
   DatasetItem,
   FeatureDetail,
   FeatureGeoJsonCollection,
+  FeatureSearchItem,
   QaSummary
 } from "../../../packages/shared/src/index.js";
 import { query } from "./db.js";
@@ -20,6 +21,11 @@ const featureQuerySchema = z.object({
 const qaQuerySchema = z.object({
   datasetId: numberText,
   datasetVersionId: numberText
+});
+const searchQuerySchema = z.object({
+  q: z.string().trim().min(1),
+  datasetId: numberText.optional(),
+  limit: numberText.optional()
 });
 
 export function registerRoutes(app: FastifyInstance) {
@@ -150,6 +156,96 @@ export function registerRoutes(app: FastifyInstance) {
       }))
     };
     return collection;
+  });
+
+  app.get("/api/search/features", async (request) => {
+    const parsed = searchQuerySchema.parse(request.query);
+    const limit = Math.min(parsed.limit ?? 50, 200);
+    const values: unknown[] = [`%${parsed.q}%`, parsed.q, limit];
+    const conditions = [`
+      (
+        fc.feature_type_code::text ILIKE $1
+        OR dc.dsnm ILIKE $1
+        OR fc.foid_fidn::text ILIKE $1
+        OR CONCAT_WS(':', fc.foid_agen::text, fc.foid_fidn::text, fc.foid_fids::text) ILIKE $1
+        OR EXISTS (
+          SELECT 1
+          FROM canonical.feature_attribute_value fav
+          WHERE fav.feature_record_id = fc.feature_record_id
+            AND (
+              fav.catalogue_name ILIKE $1
+              OR fav.raw_value ILIKE $1
+              OR fav.value_text ILIKE $1
+              OR fav.value_integer::text ILIKE $1
+              OR fav.value_numeric::text ILIKE $1
+            )
+        )
+      )
+    `];
+
+    if (parsed.datasetId !== undefined) {
+      values.push(parsed.datasetId);
+      conditions.push(`fc.dataset_id = $${values.length}`);
+    }
+
+    const result = await query<{
+      feature_instance_id: string;
+      dataset_id: string;
+      dataset_version_id: string;
+      dsnm: string;
+      feature_type_code: number;
+      foid_agen: number | null;
+      foid_fidn: string | null;
+      foid_fids: number | null;
+      geometry_type: string | null;
+      bbox: unknown;
+      match_reason: string;
+    }>(
+      `
+      SELECT
+        fc.feature_instance_id::text,
+        fc.dataset_id::text,
+        fc.dataset_version_id::text,
+        dc.dsnm,
+        fc.feature_type_code,
+        fc.foid_agen,
+        fc.foid_fidn::text,
+        fc.foid_fids,
+        CASE WHEN fc.geometry IS NULL THEN NULL ELSE GeometryType(fc.geometry) END AS geometry_type,
+        CASE WHEN fc.geometry IS NULL THEN NULL ELSE ST_AsGeoJSON(ST_Envelope(fc.geometry))::jsonb END AS bbox,
+        CASE
+          WHEN fc.feature_type_code::text ILIKE $1 THEN 'feature code'
+          WHEN dc.dsnm ILIKE $1 THEN 'dataset'
+          WHEN fc.foid_fidn::text ILIKE $1 OR CONCAT_WS(':', fc.foid_agen::text, fc.foid_fidn::text, fc.foid_fids::text) ILIKE $1 THEN 'FOID'
+          ELSE 'attribute'
+        END AS match_reason
+      FROM projection.s101_feature_current fc
+      JOIN projection.s101_dataset_current dc
+        ON dc.dataset_id = fc.dataset_id
+       AND dc.dataset_version_id = fc.dataset_version_id
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY
+        CASE WHEN fc.feature_type_code::text = $2 THEN 0 ELSE 1 END,
+        dc.dsnm,
+        fc.feature_instance_id
+      LIMIT $3
+      `,
+      values
+    );
+
+    const items: FeatureSearchItem[] = result.rows.map((row) => ({
+      featureInstanceId: row.feature_instance_id,
+      datasetId: row.dataset_id,
+      datasetVersionId: row.dataset_version_id,
+      dsnm: row.dsnm,
+      featureTypeCode: row.feature_type_code,
+      featureName: null,
+      foid: { agen: row.foid_agen, fidn: row.foid_fidn, fids: row.foid_fids },
+      geometryType: row.geometry_type,
+      bbox: row.bbox,
+      matchReason: row.match_reason
+    }));
+    return { items };
   });
 
   app.get("/api/features/:featureInstanceId", async (request) => {

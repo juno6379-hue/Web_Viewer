@@ -1,13 +1,21 @@
 import maplibregl from "maplibre-gl";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type {
   CatalogueRuntimeStatus,
   DatasetItem,
   FeatureDetail,
   FeatureGeoJsonCollection,
+  FeatureSearchItem,
   QaSummary
 } from "../../../../packages/shared/src/index";
-import { fetchCatalogueStatus, fetchDatasets, fetchFeatureDetail, fetchFeatures, fetchQaSummary } from "../api";
+import {
+  fetchCatalogueStatus,
+  fetchDatasets,
+  fetchFeatureDetail,
+  fetchFeatures,
+  fetchQaSummary,
+  searchFeatures
+} from "../api";
 
 const emptyCollection: FeatureGeoJsonCollection = {
   type: "FeatureCollection",
@@ -23,6 +31,11 @@ export function App() {
   const [qa, setQa] = useState<QaSummary | null>(null);
   const [detail, setDetail] = useState<FeatureDetail | null>(null);
   const [catalogueStatus, setCatalogueStatus] = useState<CatalogueRuntimeStatus | null>(null);
+  const [selectedFeature, setSelectedFeature] = useState<FeatureGeoJsonCollection>(emptyCollection);
+  const [dataCoverage, setDataCoverage] = useState<FeatureGeoJsonCollection>(emptyCollection);
+  const [validationErrors] = useState<FeatureGeoJsonCollection>(emptyCollection);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<FeatureSearchItem[]>([]);
   const [message, setMessage] = useState("초기화 중");
 
   const selectedDataset = useMemo(
@@ -71,8 +84,20 @@ export function App() {
         type: "geojson",
         data: emptyCollection as any
       });
+      map.addSource("s101-data-coverage", {
+        type: "geojson",
+        data: emptyCollection as any
+      });
+      map.addSource("s101-validation-errors", {
+        type: "geojson",
+        data: emptyCollection as any
+      });
+      map.addSource("s101-selected-feature", {
+        type: "geojson",
+        data: emptyCollection as any
+      });
       map.addLayer({
-        id: "s101-polygon",
+        id: "s101-surface",
         type: "fill",
         source: "s101-features",
         filter: ["in", ["geometry-type"], ["literal", ["Polygon", "MultiPolygon"]]],
@@ -82,13 +107,25 @@ export function App() {
         }
       });
       map.addLayer({
-        id: "s101-line",
+        id: "s101-curve",
         type: "line",
         source: "s101-features",
         filter: ["in", ["geometry-type"], ["literal", ["LineString", "MultiLineString"]]],
         paint: {
           "line-color": "#0f766e",
           "line-width": 2
+        }
+      });
+      map.addLayer({
+        id: "s101-multipoint",
+        type: "circle",
+        source: "s101-features",
+        filter: ["==", ["geometry-type"], "MultiPoint"],
+        paint: {
+          "circle-radius": 4,
+          "circle-color": "#9333ea",
+          "circle-stroke-width": 1,
+          "circle-stroke-color": "#ffffff"
         }
       });
       map.addLayer({
@@ -103,10 +140,73 @@ export function App() {
           "circle-stroke-color": "#ffffff"
         }
       });
-      map.on("click", ["s101-polygon", "s101-line", "s101-point"], (event) => {
+      map.addLayer({
+        id: "s101-data-coverage",
+        type: "line",
+        source: "s101-data-coverage",
+        paint: {
+          "line-color": "#2563eb",
+          "line-dasharray": [2, 2],
+          "line-width": 2
+        }
+      });
+      map.addLayer({
+        id: "s101-validation-error",
+        type: "circle",
+        source: "s101-validation-errors",
+        paint: {
+          "circle-radius": 7,
+          "circle-color": "#ef4444",
+          "circle-stroke-width": 2,
+          "circle-stroke-color": "#ffffff"
+        }
+      });
+      map.addLayer({
+        id: "s101-selected-feature-fill",
+        type: "fill",
+        source: "s101-selected-feature",
+        filter: ["in", ["geometry-type"], ["literal", ["Polygon", "MultiPolygon"]]],
+        paint: {
+          "fill-color": "#f59e0b",
+          "fill-opacity": 0.26
+        }
+      });
+      map.addLayer({
+        id: "s101-selected-feature-line",
+        type: "line",
+        source: "s101-selected-feature",
+        paint: {
+          "line-color": "#f59e0b",
+          "line-width": 4
+        }
+      });
+      map.addLayer({
+        id: "s101-selected-feature-point",
+        type: "circle",
+        source: "s101-selected-feature",
+        filter: ["in", ["geometry-type"], ["literal", ["Point", "MultiPoint"]]],
+        paint: {
+          "circle-radius": 8,
+          "circle-color": "#f59e0b",
+          "circle-stroke-width": 2,
+          "circle-stroke-color": "#ffffff"
+        }
+      });
+      map.on("click", ["s101-surface", "s101-curve", "s101-multipoint", "s101-point"], (event) => {
         const feature = event.features?.[0];
         const featureInstanceId = feature?.properties?.featureInstanceId;
         if (featureInstanceId) {
+          setSelectedFeature({
+            type: "FeatureCollection",
+            features: [
+              {
+                type: "Feature",
+                id: String(featureInstanceId),
+                geometry: feature.geometry,
+                properties: feature.properties ?? {}
+              }
+            ]
+          });
           fetchFeatureDetail(String(featureInstanceId))
             .then(setDetail)
             .catch((error: Error) => setMessage(`feature 상세 조회 실패: ${error.message}`));
@@ -127,6 +227,8 @@ export function App() {
         setFeatures(featureResult);
         setQa(qaResult);
         setDetail(null);
+        setSelectedFeature(emptyCollection);
+        setDataCoverage(createDataCoverage(selectedDataset));
         setMessage(`${selectedDataset.dsnm} feature ${featureResult.features.length}건`);
       })
       .catch((error: Error) => setMessage(`조회 실패: ${error.message}`));
@@ -144,6 +246,64 @@ export function App() {
       map.fitBounds(bounds, { padding: 60, maxZoom: 12, duration: 500 });
     }
   }, [features]);
+
+  useEffect(() => {
+    updateGeoJsonSource("s101-selected-feature", selectedFeature);
+  }, [selectedFeature]);
+
+  useEffect(() => {
+    updateGeoJsonSource("s101-data-coverage", dataCoverage);
+  }, [dataCoverage]);
+
+  useEffect(() => {
+    updateGeoJsonSource("s101-validation-errors", validationErrors);
+  }, [validationErrors]);
+
+  function updateGeoJsonSource(sourceName: string, collection: FeatureGeoJsonCollection) {
+    const map = mapRef.current;
+    const source = map?.getSource(sourceName) as maplibregl.GeoJSONSource | undefined;
+    if (!map || !source) {
+      return;
+    }
+    source.setData(collection as any);
+  }
+
+  function handleSearchSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const query = searchQuery.trim();
+    if (!query) {
+      setSearchResults([]);
+      return;
+    }
+    searchFeatures(query, selectedDataset?.datasetId)
+      .then((result) => {
+        setSearchResults(result.items);
+        setMessage(`검색 결과 ${result.items.length}건`);
+      })
+      .catch((error: Error) => setMessage(`검색 실패: ${error.message}`));
+  }
+
+  function selectSearchResult(item: FeatureSearchItem) {
+    const feature = features.features.find((candidate) => candidate.id === item.featureInstanceId);
+    if (feature) {
+      setSelectedFeature({
+        type: "FeatureCollection",
+        features: [feature]
+      });
+      const bounds = createBounds({ type: "FeatureCollection", features: [feature] });
+      if (bounds) {
+        mapRef.current?.fitBounds(bounds, { padding: 80, maxZoom: 15, duration: 500 });
+      }
+    } else {
+      const bounds = createBoundsFromGeometry(item.bbox as GeometryLike | null);
+      if (bounds) {
+        mapRef.current?.fitBounds(bounds, { padding: 80, maxZoom: 15, duration: 500 });
+      }
+    }
+    fetchFeatureDetail(item.featureInstanceId)
+      .then(setDetail)
+      .catch((error: Error) => setMessage(`feature 상세 조회 실패: ${error.message}`));
+  }
 
   return (
     <main className="app-shell">
@@ -191,10 +351,57 @@ export function App() {
       </aside>
 
       <section className="map-area">
+        <DatasetVersionBar dataset={selectedDataset} catalogueStatus={catalogueStatus} />
         <div className="status-bar">{message}</div>
+        <form className="search-panel" onSubmit={handleSearchSubmit}>
+          <label htmlFor="feature-search">Search</label>
+          <div className="search-row">
+            <input
+              id="feature-search"
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Feature code, FOID, Attribute, Dataset"
+              value={searchQuery}
+            />
+            <button type="submit">검색</button>
+          </div>
+          {searchResults.length > 0 ? (
+            <div className="search-results">
+              {searchResults.map((item) => (
+                <button key={item.featureInstanceId} onClick={() => selectSearchResult(item)} type="button">
+                  <strong>{item.featureName ?? `Feature ${item.featureTypeCode}`}</strong>
+                  <span>
+                    {item.dsnm} / {item.geometryType ?? "-"} / {item.matchReason}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </form>
         <div ref={mapContainerRef} className="map" />
       </section>
     </main>
+  );
+}
+
+function DatasetVersionBar({
+  dataset,
+  catalogueStatus
+}: {
+  dataset: DatasetItem | null;
+  catalogueStatus: CatalogueRuntimeStatus | null;
+}) {
+  return (
+    <div className="version-bar">
+      <strong>S-101</strong>
+      <span>Dataset: {dataset?.dsnm ?? "-"}</span>
+      <span>Edition: {dataset?.editionNumber ?? "-"}</span>
+      <span>Update: {dataset?.updateNumber ?? "-"}</span>
+      <span>Product: {dataset?.productId ?? "-"}</span>
+      <span>Product Spec: 2.0</span>
+      <span>FC: {catalogueStatus?.featureCatalogue?.version ?? "미연결"}</span>
+      <span>PC: {catalogueStatus?.portrayalCatalogue?.version ?? "MVP"}</span>
+      <span>Status: {dataset?.conformanceStatus ?? "-"}</span>
+    </div>
   );
 }
 
@@ -557,6 +764,40 @@ function createBounds(collection: FeatureGeoJsonCollection) {
     bounds.extend(coordinate as [number, number]);
   }
   return bounds;
+}
+
+function createBoundsFromGeometry(geometry: GeometryLike | null) {
+  const coordinates: number[][] = [];
+  collectCoordinates(geometry, coordinates);
+  if (coordinates.length === 0) {
+    return null;
+  }
+  const bounds = new maplibregl.LngLatBounds(coordinates[0] as [number, number], coordinates[0] as [number, number]);
+  for (const coordinate of coordinates) {
+    bounds.extend(coordinate as [number, number]);
+  }
+  return bounds;
+}
+
+function createDataCoverage(dataset: DatasetItem | null): FeatureGeoJsonCollection {
+  if (!dataset?.bbox) {
+    return emptyCollection;
+  }
+  return {
+    type: "FeatureCollection",
+    features: [
+      {
+        type: "Feature",
+        id: `dataset-${dataset.datasetId}-coverage`,
+        geometry: dataset.bbox,
+        properties: {
+          datasetId: dataset.datasetId,
+          datasetVersionId: dataset.datasetVersionId,
+          dsnm: dataset.dsnm
+        }
+      }
+    ]
+  };
 }
 
 type GeometryLike =

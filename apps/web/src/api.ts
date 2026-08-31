@@ -3,6 +3,7 @@ import type {
   DatasetItem,
   FeatureDetail,
   FeatureGeoJsonCollection,
+  FeatureSearchItem,
   QaSummary
 } from "../../../packages/shared/src/index";
 
@@ -43,4 +44,15 @@ export async function fetchQaSummary(dataset: DatasetItem) {
 
 export async function fetchCatalogueStatus() {
   return getJson<CatalogueRuntimeStatus>("/api/catalogue/status");
+}
+
+export async function searchFeatures(query: string, datasetId?: string) {
+  const params = new URLSearchParams({
+    q: query,
+    limit: "25"
+  });
+  if (datasetId) {
+    params.set("datasetId", datasetId);
+  }
+  return getJson<{ items: FeatureSearchItem[] }>(`/api/search/features?${params.toString()}`);
 }

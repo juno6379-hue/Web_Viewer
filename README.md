@@ -125,9 +125,57 @@ D:\dev\WebViewer
 | QA summary API | 완료 |
 | Feature Inspector 탭 UI | 완료 |
 | QA Dashboard 그룹 UI | 완료 |
+| Dataset version bar | 완료 |
+| 의미별 MapLibre layer 구조 | 완료 |
+| Feature search API/UI | 완료 |
 | Feature Catalogue snapshot/cache model | 진행 중 |
 | Portrayal engine interface | 진행 중 |
 | Portrayal Catalogue Lua engine | 다음 단계 |
+
+## Version Bar
+
+화면 상단에는 현재 사용자가 보고 있는 dataset version context를 항상 표시합니다.
+
+```text
+S-101
+Dataset
+Edition
+Update
+Product
+Product Spec
+FC
+PC
+Status
+```
+
+Feature Catalogue와 Portrayal Catalogue가 아직 cache에 연결되지 않은 경우 `미연결` 또는 `MVP`로 표시합니다.
+
+## 지도 Layer
+
+MapLibre layer는 의미별로 분리합니다.
+
+```text
+S101 Layers
+  Point
+  MultiPoint
+  Curve
+  Surface
+  Data Coverage
+  Validation Error
+  Selected Feature
+```
+
+MVP에서는 geometry type 기준 style을 사용합니다. 이후 `packages/portrayal`의 Portrayal Engine과 MapLibre Adapter 결과로 교체합니다.
+
+## Search
+
+운영 Viewer 기본 기능으로 feature search를 제공합니다.
+
+```text
+GET /api/search/features?q=
+```
+
+현재 검색 대상은 feature code, FOID, attribute, dataset입니다. Feature name 검색은 Feature Catalogue cache가 연결된 뒤 같은 API에 추가합니다.
 
 ## Feature Inspector
 

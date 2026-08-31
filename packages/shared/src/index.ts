@@ -21,6 +21,23 @@ export interface FeatureGeoJsonCollection {
   }>;
 }
 
+export interface FeatureSearchItem {
+  featureInstanceId: string;
+  datasetId: string;
+  datasetVersionId: string;
+  dsnm: string;
+  featureTypeCode: number;
+  featureName: string | null;
+  foid: {
+    agen: number | null;
+    fidn: string | null;
+    fids: number | null;
+  };
+  geometryType: string | null;
+  bbox: unknown;
+  matchReason: string;
+}
+
 export interface FeatureDetail {
   featureInstanceId: string;
   datasetId: string;
