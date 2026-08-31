@@ -75,6 +75,8 @@ export function registerRoutes(app: FastifyInstance) {
       edition_number: number | null;
       update_number: number | null;
       purpose: string;
+      min_scale: number | null;
+      max_scale: number | null;
       conformance_status: string | null;
       bbox: unknown;
       feature_count: string;
@@ -87,6 +89,8 @@ export function registerRoutes(app: FastifyInstance) {
         dc.edition_number,
         dc.update_number,
         dc.purpose,
+        dc.min_scale,
+        dc.max_scale,
         dc.conformance_status,
         CASE WHEN dc.bbox IS NULL THEN NULL ELSE ST_AsGeoJSON(dc.bbox)::jsonb END AS bbox,
         COUNT(fc.feature_instance_id)::text AS feature_count
@@ -95,7 +99,8 @@ export function registerRoutes(app: FastifyInstance) {
         ON fc.dataset_id = dc.dataset_id
        AND fc.dataset_version_id = dc.dataset_version_id
       GROUP BY dc.dataset_id, dc.dataset_version_id, dc.dsnm, dc.product_id,
-               dc.edition_number, dc.update_number, dc.purpose, dc.conformance_status, dc.bbox
+               dc.edition_number, dc.update_number, dc.purpose, dc.min_scale, dc.max_scale,
+               dc.conformance_status, dc.bbox
       ORDER BY dc.dsnm
     `);
 
@@ -108,6 +113,8 @@ export function registerRoutes(app: FastifyInstance) {
       editionNumber: row.edition_number,
       updateNumber: row.update_number,
       purpose: row.purpose,
+      minScale: row.min_scale,
+      maxScale: row.max_scale,
       conformanceStatus: row.conformance_status,
       bbox: row.bbox,
       featureCount: Number(row.feature_count)
@@ -441,6 +448,8 @@ export function registerRoutes(app: FastifyInstance) {
         rrnm: number;
         rrid: number;
         orientation: number | null;
+        smin: number | null;
+        smax: number | null;
         geometry_type: string | null;
         srid: number | null;
         bbox: unknown;
@@ -458,6 +467,8 @@ export function registerRoutes(app: FastifyInstance) {
           sref.rrnm,
           sref.rrid,
           sref.ornt AS orientation,
+          sref.smin,
+          sref.smax,
           CASE WHEN sr.derived_geometry IS NULL THEN NULL ELSE GeometryType(sr.derived_geometry) END AS geometry_type,
           CASE WHEN sr.derived_geometry IS NULL THEN NULL ELSE ST_SRID(sr.derived_geometry) END AS srid,
           CASE WHEN sr.derived_geometry IS NULL THEN NULL ELSE ST_AsGeoJSON(ST_Envelope(sr.derived_geometry))::jsonb END AS bbox,
@@ -595,6 +606,8 @@ export function registerRoutes(app: FastifyInstance) {
         rrnm: item.rrnm,
         rrid: item.rrid,
         orientation: item.orientation,
+        minScale: item.smin,
+        maxScale: item.smax,
         geometryType: item.geometry_type,
         srid: item.srid,
         bbox: item.bbox,

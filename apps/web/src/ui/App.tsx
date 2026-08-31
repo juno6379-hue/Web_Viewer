@@ -26,9 +26,31 @@ const emptyCollection: FeatureGeoJsonCollection = {
   features: []
 };
 
+const portrayalStages = [
+  { stage: 0, label: "0", zoom: 5.2, scale: "1:2,000,000", mode: "Overview" },
+  { stage: 1, label: "1", zoom: 7, scale: "1:700,000", mode: "Regional" },
+  { stage: 2, label: "2", zoom: 8.8, scale: "1:350,000", mode: "Approach" },
+  { stage: 3, label: "3", zoom: 10.5, scale: "1:120,000", mode: "Coastal" },
+  { stage: 4, label: "4", zoom: 12, scale: "1:50,000", mode: "Harbour" },
+  { stage: 5, label: "5", zoom: 13.8, scale: "1:22,000", mode: "Berthing" },
+  { stage: 6, label: "6", zoom: 15.4, scale: "1:8,000", mode: "Detail" }
+];
+
+const layerDefinitions = [
+  { id: "s101-point", label: "Point" },
+  { id: "s101-multipoint", label: "MultiPoint" },
+  { id: "s101-curve", label: "Curve" },
+  { id: "s101-surface", label: "Surface" },
+  { id: "s101-data-coverage", label: "Data Coverage" },
+  { id: "s101-validation-error", label: "Validation Error" },
+  { id: "s101-selected-feature-fill", label: "Selected Feature" }
+];
+
 export function App() {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const selectedDatasetRef = useRef<DatasetItem | null>(null);
+  const catalogueStatusRef = useRef<CatalogueRuntimeStatus | null>(null);
   const [datasets, setDatasets] = useState<DatasetItem[]>([]);
   const [selectedDatasetId, setSelectedDatasetId] = useState<string>("");
   const [features, setFeatures] = useState<FeatureGeoJsonCollection>(emptyCollection);
@@ -41,11 +63,24 @@ export function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<FeatureSearchItem[]>([]);
   const [message, setMessage] = useState("초기화 중");
+  const [portrayalStage, setPortrayalStage] = useState(2);
+  const [visibleLayers, setVisibleLayers] = useState<Record<string, boolean>>(
+    Object.fromEntries(layerDefinitions.map((layer) => [layer.id, true]))
+  );
 
   const selectedDataset = useMemo(
     () => datasets.find((dataset) => dataset.datasetId === selectedDatasetId) ?? null,
     [datasets, selectedDatasetId]
   );
+  const activeStage = portrayalStages.find((stage) => stage.stage === portrayalStage) ?? portrayalStages[2];
+
+  useEffect(() => {
+    selectedDatasetRef.current = selectedDataset;
+  }, [selectedDataset]);
+
+  useEffect(() => {
+    catalogueStatusRef.current = catalogueStatus;
+  }, [catalogueStatus]);
 
   useEffect(() => {
     fetchDatasets()
@@ -74,151 +109,28 @@ export function App() {
           {
             id: "background",
             type: "background",
-            paint: { "background-color": "#edf2f7" }
+            paint: { "background-color": "#dceef7" }
           }
         ]
       },
       center: [126.5, 34.4],
-      zoom: 7
+      zoom: activeStage.zoom
     });
 
-    map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
+    map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-left");
     map.on("load", () => {
-      map.addSource("s101-features", {
-        type: "geojson",
-        data: emptyCollection as any
-      });
-      map.addSource("s101-data-coverage", {
-        type: "geojson",
-        data: emptyCollection as any
-      });
-      map.addSource("s101-validation-errors", {
-        type: "geojson",
-        data: emptyCollection as any
-      });
-      map.addSource("s101-selected-feature", {
-        type: "geojson",
-        data: emptyCollection as any
-      });
-      map.addLayer({
-        id: "s101-surface",
-        type: "fill",
-        source: "s101-features",
-        filter: ["in", ["geometry-type"], ["literal", ["Polygon", "MultiPolygon"]]],
-        paint: {
-          "fill-color": ["match", ["get", "featureTypeCode"], 1, "#3b82f6", 2, "#14b8a6", "#7c3aed"],
-          "fill-opacity": 0.32
-        }
-      });
-      map.addLayer({
-        id: "s101-curve",
-        type: "line",
-        source: "s101-features",
-        filter: ["in", ["geometry-type"], ["literal", ["LineString", "MultiLineString"]]],
-        paint: {
-          "line-color": "#0f766e",
-          "line-width": 2
-        }
-      });
-      map.addLayer({
-        id: "s101-multipoint",
-        type: "circle",
-        source: "s101-features",
-        filter: ["==", ["geometry-type"], "MultiPoint"],
-        paint: {
-          "circle-radius": 4,
-          "circle-color": "#9333ea",
-          "circle-stroke-width": 1,
-          "circle-stroke-color": "#ffffff"
-        }
-      });
-      map.addLayer({
-        id: "s101-point",
-        type: "circle",
-        source: "s101-features",
-        filter: ["==", ["geometry-type"], "Point"],
-        paint: {
-          "circle-radius": 5,
-          "circle-color": "#dc2626",
-          "circle-stroke-width": 1,
-          "circle-stroke-color": "#ffffff"
-        }
-      });
-      map.addLayer({
-        id: "s101-data-coverage",
-        type: "line",
-        source: "s101-data-coverage",
-        paint: {
-          "line-color": "#2563eb",
-          "line-dasharray": [2, 2],
-          "line-width": 2
-        }
-      });
-      map.addLayer({
-        id: "s101-validation-error",
-        type: "circle",
-        source: "s101-validation-errors",
-        paint: {
-          "circle-radius": 7,
-          "circle-color": "#ef4444",
-          "circle-stroke-width": 2,
-          "circle-stroke-color": "#ffffff"
-        }
-      });
-      map.addLayer({
-        id: "s101-selected-feature-fill",
-        type: "fill",
-        source: "s101-selected-feature",
-        filter: ["in", ["geometry-type"], ["literal", ["Polygon", "MultiPolygon"]]],
-        paint: {
-          "fill-color": "#f59e0b",
-          "fill-opacity": 0.26
-        }
-      });
-      map.addLayer({
-        id: "s101-selected-feature-line",
-        type: "line",
-        source: "s101-selected-feature",
-        paint: {
-          "line-color": "#f59e0b",
-          "line-width": 4
-        }
-      });
-      map.addLayer({
-        id: "s101-selected-feature-point",
-        type: "circle",
-        source: "s101-selected-feature",
-        filter: ["in", ["geometry-type"], ["literal", ["Point", "MultiPoint"]]],
-        paint: {
-          "circle-radius": 8,
-          "circle-color": "#f59e0b",
-          "circle-stroke-width": 2,
-          "circle-stroke-color": "#ffffff"
-        }
-      });
+      addSources(map);
+      addLayers(map);
       map.on("click", ["s101-surface", "s101-curve", "s101-multipoint", "s101-point"], (event) => {
         const feature = event.features?.[0];
         const featureInstanceId = feature?.properties?.featureInstanceId;
-        if (featureInstanceId) {
-          setSelectedFeature({
-            type: "FeatureCollection",
-            datasetVersionId: selectedDataset?.datasetVersionId ?? null,
-            productSpecification: selectedDataset?.productSpecification ?? "2.0",
-            featureCatalogueVersion: catalogueStatus?.featureCatalogue?.version ?? null,
-            portrayalCatalogueVersion: catalogueStatus?.portrayalCatalogue?.version ?? null,
-            features: [
-              {
-                type: "Feature",
-                id: String(featureInstanceId),
-                geometry: feature.geometry,
-                properties: feature.properties ?? {}
-              }
-            ]
-          });
-          fetchFeatureDetail(String(featureInstanceId))
-            .then(setDetail)
-            .catch((error: Error) => setMessage(`feature 상세 조회 실패: ${error.message}`));
+        if (!featureInstanceId) {
+          return;
         }
+        setSelectedFeature(createSelectedCollection(String(featureInstanceId), feature.geometry, feature.properties ?? {}));
+        fetchFeatureDetail(String(featureInstanceId))
+          .then(setDetail)
+          .catch((error: Error) => setMessage(`feature 상세 조회 실패: ${error.message}`));
       });
     });
 
@@ -237,21 +149,17 @@ export function App() {
         setDetail(null);
         setSelectedFeature(emptyCollection);
         setDataCoverage(createDataCoverage(selectedDataset));
+        setSearchResults([]);
         setMessage(`${selectedDataset.dsnm} feature ${featureResult.features.length}건`);
       })
       .catch((error: Error) => setMessage(`조회 실패: ${error.message}`));
   }, [selectedDataset]);
 
   useEffect(() => {
-    const map = mapRef.current;
-    const source = map?.getSource("s101-features") as maplibregl.GeoJSONSource | undefined;
-    if (!map || !source) {
-      return;
-    }
-    source.setData(features as any);
+    updateGeoJsonSource("s101-features", features);
     const bounds = createBounds(features);
     if (bounds) {
-      map.fitBounds(bounds, { padding: 60, maxZoom: 12, duration: 500 });
+      mapRef.current?.fitBounds(bounds, { padding: 60, maxZoom: activeStage.zoom, duration: 500 });
     }
   }, [features]);
 
@@ -267,13 +175,34 @@ export function App() {
     updateGeoJsonSource("s101-validation-errors", validationErrors);
   }, [validationErrors]);
 
-  function updateGeoJsonSource(sourceName: string, collection: FeatureGeoJsonCollection) {
+  useEffect(() => {
     const map = mapRef.current;
-    const source = map?.getSource(sourceName) as maplibregl.GeoJSONSource | undefined;
-    if (!map || !source) {
+    if (!map) {
       return;
     }
-    source.setData(collection as any);
+    for (const layer of layerDefinitions) {
+      const layerIds =
+        layer.id === "s101-selected-feature-fill"
+          ? ["s101-selected-feature-fill", "s101-selected-feature-line", "s101-selected-feature-point"]
+          : [layer.id];
+      for (const layerId of layerIds) {
+        if (map.getLayer(layerId)) {
+          map.setLayoutProperty(layerId, "visibility", visibleLayers[layer.id] ? "visible" : "none");
+        }
+      }
+    }
+  }, [visibleLayers]);
+
+  function updateGeoJsonSource(sourceName: string, collection: FeatureGeoJsonCollection) {
+    const source = mapRef.current?.getSource(sourceName) as maplibregl.GeoJSONSource | undefined;
+    source?.setData(collection as any);
+  }
+
+  function changePortrayalStage(nextStage: number) {
+    const boundedStage = Math.max(0, Math.min(6, nextStage));
+    const stage = portrayalStages[boundedStage];
+    setPortrayalStage(boundedStage);
+    mapRef.current?.easeTo({ zoom: stage.zoom, duration: 450 });
   }
 
   function handleSearchSubmit(event: FormEvent<HTMLFormElement>) {
@@ -294,20 +223,11 @@ export function App() {
   function selectSearchResult(item: FeatureSearchItem) {
     const feature = features.features.find((candidate) => candidate.id === item.featureInstanceId);
     if (feature) {
-      setSelectedFeature({
-        type: "FeatureCollection",
-        datasetVersionId: selectedDataset?.datasetVersionId ?? null,
-        productSpecification: selectedDataset?.productSpecification ?? "2.0",
-        featureCatalogueVersion: catalogueStatus?.featureCatalogue?.version ?? null,
-        portrayalCatalogueVersion: catalogueStatus?.portrayalCatalogue?.version ?? null,
-        features: [feature]
-      });
+      setSelectedFeature(createSelectedCollection(item.featureInstanceId, feature.geometry, feature.properties));
       const bounds = createBounds({
-        type: "FeatureCollection",
+        ...emptyCollection,
         datasetVersionId: selectedDataset?.datasetVersionId ?? null,
         productSpecification: selectedDataset?.productSpecification ?? "2.0",
-        featureCatalogueVersion: catalogueStatus?.featureCatalogue?.version ?? null,
-        portrayalCatalogueVersion: catalogueStatus?.portrayalCatalogue?.version ?? null,
         features: [feature]
       });
       if (bounds) {
@@ -324,187 +244,317 @@ export function App() {
       .catch((error: Error) => setMessage(`feature 상세 조회 실패: ${error.message}`));
   }
 
+  function createSelectedCollection(id: string, geometry: unknown, properties: Record<string, unknown>) {
+    const dataset = selectedDatasetRef.current;
+    const catalogue = catalogueStatusRef.current;
+    return {
+      type: "FeatureCollection",
+      datasetVersionId: dataset?.datasetVersionId ?? null,
+      productSpecification: dataset?.productSpecification ?? "2.0",
+      featureCatalogueVersion: catalogue?.featureCatalogue?.version ?? null,
+      portrayalCatalogueVersion: catalogue?.portrayalCatalogue?.version ?? null,
+      features: [
+        {
+          type: "Feature",
+          id,
+          geometry,
+          properties
+        }
+      ]
+    } satisfies FeatureGeoJsonCollection;
+  }
+
   return (
-    <main className="app-shell">
-      <aside className="side-panel">
-        <section>
-          <h1>S-101 Web Viewer</h1>
-          <p className="muted">projection 기반 S-101 조회</p>
-        </section>
-
-        <section className="panel-section">
-          <label htmlFor="dataset">Dataset</label>
-          <select id="dataset" value={selectedDatasetId} onChange={(event) => setSelectedDatasetId(event.target.value)}>
-            {datasets.map((dataset) => (
-              <option key={dataset.datasetId} value={dataset.datasetId}>
-                {dataset.dsnm}
-              </option>
-            ))}
-          </select>
-          {selectedDataset ? (
-            <dl className="meta-grid">
-              <dt>Version</dt>
-              <dd>{selectedDataset.datasetVersionId}</dd>
-              <dt>Feature</dt>
-              <dd>{selectedDataset.featureCount.toLocaleString()}</dd>
-              <dt>Status</dt>
-              <dd>{selectedDataset.conformanceStatus ?? "-"}</dd>
-            </dl>
-          ) : null}
-        </section>
-
-        <section className="panel-section">
-          <h2>Catalogue</h2>
-          {catalogueStatus ? <CataloguePanel status={catalogueStatus} /> : <p className="muted">catalogue 상태 확인 중</p>}
-        </section>
-
-        <section className="panel-section">
-          <h2>QA Summary</h2>
-          {qa ? <QaPanel qa={qa} /> : <p className="muted">QA 대기 중</p>}
-        </section>
-
-        <section className="panel-section">
-          <h2>Feature Inspector</h2>
-          {detail ? <FeaturePanel detail={detail} /> : <p className="muted">지도에서 feature를 선택하세요.</p>}
-        </section>
-      </aside>
-
-      <section className="map-area">
-        <DatasetVersionBar dataset={selectedDataset} catalogueStatus={catalogueStatus} />
-        <div className="status-bar">{message}</div>
-        <form className="search-panel" onSubmit={handleSearchSubmit}>
-          <label htmlFor="feature-search">Search</label>
-          <div className="search-row">
-            <input
-              id="feature-search"
-              onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Feature code, FOID, Attribute, Dataset"
-              value={searchQuery}
-            />
-            <button type="submit">검색</button>
-          </div>
-          {searchResults.length > 0 ? (
-            <div className="search-results">
-              {searchResults.map((item) => (
-                <button key={item.featureInstanceId} onClick={() => selectSearchResult(item)} type="button">
-                  <strong>{item.featureName ?? `Feature ${item.featureTypeCode}`}</strong>
-                  <span>
-                    {item.dsnm} / {item.geometryType ?? "-"} / {item.matchReason}
-                  </span>
-                </button>
-              ))}
-            </div>
-          ) : null}
-        </form>
-        <div ref={mapContainerRef} className="map" />
+    <main className="viewer-shell">
+      <Header dataset={selectedDataset} catalogueStatus={catalogueStatus} message={message} />
+      <section className="viewer-grid">
+        <DatasetExplorer
+          datasets={datasets}
+          layerState={visibleLayers}
+          onLayerChange={setVisibleLayers}
+          onSearch={handleSearchSubmit}
+          onSearchQueryChange={setSearchQuery}
+          onSearchResultSelect={selectSearchResult}
+          onSelectDataset={setSelectedDatasetId}
+          portrayalStage={portrayalStage}
+          qa={qa}
+          searchQuery={searchQuery}
+          searchResults={searchResults}
+          selectedDataset={selectedDataset}
+          selectedDatasetId={selectedDatasetId}
+          stage={activeStage}
+        />
+        <MapPanel mapContainerRef={mapContainerRef} onStageChange={changePortrayalStage} stage={activeStage} />
+        <aside className="inspector-panel">
+          <PanelHeader title="Feature Inspector" />
+          {detail ? <FeaturePanel detail={detail} /> : <p className="muted">지도 또는 검색 결과에서 feature를 선택하세요.</p>}
+        </aside>
       </section>
+      <QaDashboard qa={qa} />
+      <footer className="viewer-footer">
+        <span>projection.s101_feature_geojson</span>
+        <span>Feature Catalogue: {catalogueStatus?.featureCatalogue?.version ?? "미연결"}</span>
+        <span>Portrayal: Lua 준비 / MVP fallback 사용 중</span>
+        <span>SCAMIN 단계 {activeStage.stage}</span>
+      </footer>
     </main>
   );
 }
 
-function DatasetVersionBar({
+function Header({
   dataset,
-  catalogueStatus
+  catalogueStatus,
+  message
 }: {
   dataset: DatasetItem | null;
   catalogueStatus: CatalogueRuntimeStatus | null;
+  message: string;
 }) {
   return (
-    <div className="version-bar">
-      <strong>S-101</strong>
-      <span>Dataset: {dataset?.dsnm ?? "-"}</span>
-      <span>Edition: {dataset?.editionNumber ?? "-"}</span>
-      <span>Update: {dataset?.updateNumber ?? "-"}</span>
-      <span>Product: {dataset?.productId ?? "-"}</span>
-      <span>Product Spec: 2.0</span>
-      <span>FC: {catalogueStatus?.featureCatalogue?.version ?? "미연결"}</span>
-      <span>PC: {catalogueStatus?.portrayalCatalogue?.version ?? "MVP"}</span>
-      <span>Status: {dataset?.conformanceStatus ?? "-"}</span>
+    <header className="app-header">
+      <div className="brand-block">
+        <div className="brand-mark">S</div>
+        <div>
+          <h1>S-101 V2.0 Web Viewer</h1>
+          <p>{message}</p>
+        </div>
+      </div>
+      <div className="version-strip">
+        <InfoPill label="Dataset" value={dataset?.dsnm ?? "-"} />
+        <InfoPill label="Edition" value={dataset?.editionNumber ?? "-"} />
+        <InfoPill label="Update" value={dataset?.updateNumber ?? "-"} />
+        <InfoPill label="Product Spec" value="2.0" />
+        <InfoPill label="FC" value={catalogueStatus?.featureCatalogue?.version ?? "미연결"} />
+        <InfoPill label="PC" value={catalogueStatus?.portrayalCatalogue?.version ?? "MVP"} />
+        <InfoPill label="Status" value={dataset?.conformanceStatus ?? "-"} tone="ok" />
+      </div>
+    </header>
+  );
+}
+
+function InfoPill({ label, value, tone }: { label: string; value: string | number; tone?: "ok" | "warn" }) {
+  return (
+    <div className={`info-pill ${tone ?? ""}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
     </div>
   );
 }
 
-function QaPanel({ qa }: { qa: QaSummary }) {
+function DatasetExplorer({
+  datasets,
+  selectedDataset,
+  selectedDatasetId,
+  onSelectDataset,
+  searchQuery,
+  onSearchQueryChange,
+  onSearch,
+  searchResults,
+  onSearchResultSelect,
+  layerState,
+  onLayerChange,
+  portrayalStage,
+  stage,
+  qa
+}: {
+  datasets: DatasetItem[];
+  selectedDataset: DatasetItem | null;
+  selectedDatasetId: string;
+  onSelectDataset: (datasetId: string) => void;
+  searchQuery: string;
+  onSearchQueryChange: (query: string) => void;
+  onSearch: (event: FormEvent<HTMLFormElement>) => void;
+  searchResults: FeatureSearchItem[];
+  onSearchResultSelect: (item: FeatureSearchItem) => void;
+  layerState: Record<string, boolean>;
+  onLayerChange: (state: Record<string, boolean>) => void;
+  portrayalStage: number;
+  stage: (typeof portrayalStages)[number];
+  qa: QaSummary | null;
+}) {
+  return (
+    <aside className="explorer-panel">
+      <PanelHeader title="Dataset Explorer" />
+      <section className="panel-section">
+        <label htmlFor="dataset">데이터셋 목록</label>
+        <select id="dataset" value={selectedDatasetId} onChange={(event) => onSelectDataset(event.target.value)}>
+          {datasets.map((dataset) => (
+            <option key={dataset.datasetId} value={dataset.datasetId}>
+              {dataset.dsnm}
+            </option>
+          ))}
+        </select>
+        <dl className="meta-grid">
+          <dt>Version</dt>
+          <dd>{selectedDataset?.datasetVersionId ?? "-"}</dd>
+          <dt>Feature</dt>
+          <dd>{selectedDataset?.featureCount.toLocaleString() ?? "-"}</dd>
+          <dt>Scale</dt>
+          <dd>
+            {selectedDataset?.minScale ?? "-"} / {selectedDataset?.maxScale ?? "-"}
+          </dd>
+        </dl>
+      </section>
+      <section className="panel-section">
+        <h2>검색</h2>
+        <form className="search-box" onSubmit={onSearch}>
+          <input
+            onChange={(event) => onSearchQueryChange(event.target.value)}
+            placeholder="Feature code, FOID, Attribute, Dataset"
+            value={searchQuery}
+          />
+          <button type="submit">검색</button>
+        </form>
+        {searchResults.length > 0 ? (
+          <div className="search-results">
+            {searchResults.map((item) => (
+              <button key={item.featureInstanceId} onClick={() => onSearchResultSelect(item)} type="button">
+                <strong>{item.featureName ?? `Feature ${item.featureTypeCode}`}</strong>
+                <span>
+                  {item.dsnm} / {item.geometryType ?? "-"} / {item.matchReason}
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </section>
+      <section className="panel-section">
+        <h2>S101 Layers</h2>
+        <div className="layer-list">
+          {layerDefinitions.map((layer) => (
+            <label key={layer.id}>
+              <input
+                checked={layerState[layer.id] ?? true}
+                onChange={(event) => onLayerChange({ ...layerState, [layer.id]: event.target.checked })}
+                type="checkbox"
+              />
+              <span>{layer.label}</span>
+            </label>
+          ))}
+        </div>
+      </section>
+      <section className="panel-section">
+        <h2>Lua / SCAMIN</h2>
+        <div className="scale-card">
+          <strong>단계 {portrayalStage}</strong>
+          <span>{stage.mode}</span>
+          <span>{stage.scale}</span>
+          <small>현재는 Lua rule 실행 전 단계이며, SCAMIN/SMIN/SMAX 확인용 zoom band입니다.</small>
+        </div>
+      </section>
+      <section className="panel-section">
+        <h2>QA 요약</h2>
+        <div className="summary-tiles">
+          <Metric label="Missing GeoJSON" value={qa?.missingGeoJson ?? 0} />
+          <Metric label="Invalid Geometry" value={qa?.invalidGeometry ?? 0} />
+          <Metric label="Blocking Issue" value={qa?.blockingValidationIssues ?? 0} />
+          <Metric label="Warning" value={qa?.validationWarning ?? 0} />
+        </div>
+      </section>
+    </aside>
+  );
+}
+
+function MapPanel({
+  mapContainerRef,
+  stage,
+  onStageChange
+}: {
+  mapContainerRef: React.RefObject<HTMLDivElement>;
+  stage: (typeof portrayalStages)[number];
+  onStageChange: (stage: number) => void;
+}) {
+  return (
+    <section className="map-panel">
+      <PanelHeader title="Map Viewer" />
+      <div className="map-frame">
+        <div className="map-legend">
+          <span>
+            <i className="dot point" /> Point
+          </span>
+          <span>
+            <i className="line" /> Curve
+          </span>
+          <span>
+            <i className="box" /> Surface
+          </span>
+        </div>
+        <div className="scale-control">
+          <button onClick={() => onStageChange(stage.stage - 1)} type="button">
+            -
+          </button>
+          <div>
+            <strong>SCAMIN {stage.label}</strong>
+            <span>{stage.scale}</span>
+          </div>
+          <button onClick={() => onStageChange(stage.stage + 1)} type="button">
+            +
+          </button>
+        </div>
+        <div className="stage-rail">
+          {portrayalStages.map((item) => (
+            <button
+              className={item.stage === stage.stage ? "active" : ""}
+              key={item.stage}
+              onClick={() => onStageChange(item.stage)}
+              type="button"
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+        <div ref={mapContainerRef} className="map" />
+      </div>
+    </section>
+  );
+}
+
+function PanelHeader({ title }: { title: string }) {
+  return (
+    <div className="panel-header">
+      <h2>{title}</h2>
+      <span>⌃</span>
+    </div>
+  );
+}
+
+function QaDashboard({ qa }: { qa: QaSummary | null }) {
   const groups = [
+    { title: "Invalid Geometry", value: qa?.invalidGeometry ?? 0, warn: qa?.invalidGeometry ?? 0 },
+    { title: "Null Geometry", value: qa?.nullGeometry ?? 0, warn: qa?.nullInvalidTopology ?? 0 },
+    { title: "Missing GeoJSON", value: qa?.missingGeoJson ?? 0, warn: qa?.missingGeoJson ?? 0 },
+    { title: "Feature Link", value: qa?.featureRecordWithoutInstance ?? 0, warn: qa?.featureRecordWithoutInstance ?? 0 },
     {
-      title: "Integrity",
-      rows: [
-        ["feature instance link", qa.featureRecordWithoutInstance],
-        ["information instance link", qa.informationRecordWithoutInstance],
-        ["attribute owner", qa.attributeOwnerMissing],
-        ["complex attribute owner", qa.complexAttributeOwnerMissing],
-        ["association source", qa.associationSourceMissing],
-        ["association target", qa.associationTargetMissing]
-      ]
+      title: "Association Source/Target",
+      value: (qa?.associationSourceMissing ?? 0) + (qa?.associationTargetMissing ?? 0),
+      warn: (qa?.associationSourceMissing ?? 0) + (qa?.associationTargetMissing ?? 0)
     },
-    {
-      title: "Spatial",
-      rows: [
-        ["spatial reference cross-version", qa.spatialReferenceCrossVersion],
-        ["curve endpoint", qa.curveEndpointCrossVersion],
-        ["surface boundary", qa.surfaceBoundaryCrossVersion]
-      ]
-    },
-    {
-      title: "Geometry",
-      rows: [
-        ["invalid geometry", qa.invalidGeometry],
-        ["null geometry", qa.nullGeometry],
-        ["null no source data", qa.nullNoSourceData],
-        ["null invalid topology", qa.nullInvalidTopology]
-      ]
-    },
-    {
-      title: "Projection",
-      rows: [
-        ["canonical feature count", qa.canonicalFeatureCount],
-        ["projected feature count", qa.projectedFeatures],
-        ["GeoJSON count", qa.geoJsonRows],
-        ["missing GeoJSON", qa.missingGeoJson]
-      ]
-    },
-    {
-      title: "Validation",
-      rows: [
-        ["critical", qa.validationCritical],
-        ["error", qa.validationError],
-        ["warning", qa.validationWarning],
-        ["blocking", qa.blockingValidationIssues]
-      ]
-    }
+    { title: "Blocking Validation Issue", value: qa?.blockingValidationIssues ?? 0, warn: qa?.blockingValidationIssues ?? 0 },
+    { title: "Canonical ↔ Projection", value: qa?.projectedFeatures ?? 0, warn: qa?.missingGeoJson ?? 0 },
+    { title: "Health Check", value: qa ? "OK" : "-", warn: 0 }
   ];
 
   return (
-    <div className="qa-groups">
-      {groups.map((group) => (
-        <section className="qa-group" key={group.title}>
-          <h3>{group.title}</h3>
-          <dl className="qa-grid">
-            {group.rows.map(([label, value]) => (
-              <div key={label}>
-                <dt>{label}</dt>
-                <dd className={Number(value) === 0 ? "ok" : "warn"}>{Number(value).toLocaleString()}</dd>
-              </div>
-            ))}
-          </dl>
-        </section>
-      ))}
-    </div>
+    <section className="qa-dashboard">
+      <PanelHeader title="QA Dashboard" />
+      <div className="qa-cards">
+        {groups.map((group) => (
+          <article className="qa-card" key={group.title}>
+            <span>{group.title}</span>
+            <strong className={Number(group.warn) > 0 ? "warn" : "ok"}>{group.value}</strong>
+            <small>심각 {group.warn} / 정상 {group.warn === 0 ? "OK" : "확인 필요"}</small>
+          </article>
+        ))}
+      </div>
+    </section>
   );
 }
 
-function CataloguePanel({ status }: { status: CatalogueRuntimeStatus }) {
+function Metric({ label, value }: { label: string; value: number }) {
   return (
-    <div className={status.catalogueMismatch || !status.cacheReady ? "notice warn-box" : "notice ok-box"}>
-      <dl className="meta-grid">
-        <dt>Cache</dt>
-        <dd>{status.cacheReady ? "준비됨" : "미준비"}</dd>
-        <dt>Feature</dt>
-        <dd>{status.featureCatalogue?.version ?? "-"}</dd>
-        <dt>Portrayal</dt>
-        <dd>{status.portrayalCatalogue?.version ?? "MVP fallback"}</dd>
-      </dl>
-      {status.warning ? <p>{status.warning}</p> : null}
+    <div className="metric">
+      <span>{label}</span>
+      <strong className={value > 0 ? "warn" : "ok"}>{value.toLocaleString()}</strong>
     </div>
   );
 }
@@ -582,59 +632,31 @@ function FeatureAttributes({ detail }: { detail: FeatureDetail }) {
     <div className="stack">
       <h3>Simple Attribute</h3>
       {detail.simpleAttributes.length > 0 ? (
-        <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Code</th>
-                <th>Name</th>
-                <th>ATIX</th>
-                <th>PAIX</th>
-                <th>Value</th>
-              </tr>
-            </thead>
-            <tbody>
-              {detail.simpleAttributes.map((attribute) => (
-                <tr key={attribute.id}>
-                  <td>{attribute.code}</td>
-                  <td>{attribute.name ?? "-"}</td>
-                  <td>{attribute.atix}</td>
-                  <td>{attribute.paix ?? "-"}</td>
-                  <td>{formatValue(attribute.value ?? attribute.rawValue)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable
+          headers={["Code", "Name", "ATIX", "PAIX", "Value"]}
+          rows={detail.simpleAttributes.map((attribute) => [
+            attribute.code,
+            attribute.name ?? "-",
+            attribute.atix,
+            attribute.paix ?? "-",
+            formatValue(attribute.value ?? attribute.rawValue)
+          ])}
+        />
       ) : (
         <p className="muted">simple attribute 없음</p>
       )}
       <h3>Complex Attribute</h3>
       {detail.complexAttributes.length > 0 ? (
-        <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Code</th>
-                <th>Name</th>
-                <th>ATIX</th>
-                <th>PAIX</th>
-                <th>Occurrence</th>
-              </tr>
-            </thead>
-            <tbody>
-              {detail.complexAttributes.map((attribute) => (
-                <tr key={attribute.id}>
-                  <td>{attribute.code}</td>
-                  <td>{attribute.name ?? "-"}</td>
-                  <td>{attribute.atix}</td>
-                  <td>{attribute.paix ?? "-"}</td>
-                  <td>{attribute.occurrenceOrdinal}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable
+          headers={["Code", "Name", "ATIX", "PAIX", "Occurrence"]}
+          rows={detail.complexAttributes.map((attribute) => [
+            attribute.code,
+            attribute.name ?? "-",
+            attribute.atix,
+            attribute.paix ?? "-",
+            attribute.occurrenceOrdinal
+          ])}
+        />
       ) : (
         <p className="muted">complex attribute 없음</p>
       )}
@@ -647,28 +669,15 @@ function FeatureAssociations({ detail }: { detail: FeatureDetail }) {
     return <p className="muted">association 없음</p>;
   }
   return (
-    <div className="table-scroll">
-      <table>
-        <thead>
-          <tr>
-            <th>Type</th>
-            <th>Role</th>
-            <th>Target</th>
-            <th>Record</th>
-          </tr>
-        </thead>
-        <tbody>
-          {detail.associations.map((association) => (
-            <tr key={`${association.associationId}-${association.targetRecordId ?? "source"}`}>
-              <td>{association.associationType}</td>
-              <td>{association.role ?? association.sourceField}</td>
-              <td>{association.targetType ? `${association.targetType}:${association.targetId ?? "-"}` : "-"}</td>
-              <td>{association.targetRecordId ?? "-"}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <DataTable
+      headers={["Type", "Role", "Target", "Record"]}
+      rows={detail.associations.map((association) => [
+        association.associationType,
+        association.role ?? association.sourceField,
+        association.targetType ? `${association.targetType}:${association.targetId ?? "-"}` : "-",
+        association.targetRecordId ?? "-"
+      ])}
+    />
   );
 }
 
@@ -677,34 +686,17 @@ function FeatureSpatial({ detail }: { detail: FeatureDetail }) {
     return <p className="muted">spatial reference 없음</p>;
   }
   return (
-    <div className="table-scroll">
-      <table>
-        <thead>
-          <tr>
-            <th>Spatial Type</th>
-            <th>Spatial Record</th>
-            <th>Geometry</th>
-            <th>SRID</th>
-            <th>BBOX</th>
-            <th>Topology</th>
-          </tr>
-        </thead>
-        <tbody>
-          {detail.spatial.map((spatial) => (
-            <tr key={spatial.spatialReferenceId}>
-              <td>{spatial.spatialType}</td>
-              <td>
-                {spatial.rcnm}:{spatial.rcid} / RVER {spatial.rver} / RUIN {spatial.ruin}
-              </td>
-              <td>{spatial.geometryType ?? "-"}</td>
-              <td>{spatial.srid ?? "-"}</td>
-              <td>{formatValue(spatial.bbox)}</td>
-              <td className={spatial.topology === "ok" ? "ok" : "warn"}>{spatial.topology}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <DataTable
+      headers={["Spatial Type", "Spatial Record", "Geometry", "SRID", "SMIN/SMAX", "Topology"]}
+      rows={detail.spatial.map((spatial) => [
+        spatial.spatialType,
+        `${spatial.rcnm}:${spatial.rcid} / RVER ${spatial.rver} / RUIN ${spatial.ruin}`,
+        spatial.geometryType ?? "-",
+        spatial.srid ?? "-",
+        `${spatial.minScale ?? "-"} / ${spatial.maxScale ?? "-"}`,
+        spatial.topology
+      ])}
+    />
   );
 }
 
@@ -760,6 +752,101 @@ function FeatureValidation({ detail }: { detail: FeatureDetail }) {
   );
 }
 
+function DataTable({ headers, rows }: { headers: string[]; rows: Array<Array<string | number>> }) {
+  return (
+    <div className="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            {headers.map((header) => (
+              <th key={header}>{header}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, rowIndex) => (
+            <tr key={rowIndex}>
+              {row.map((cell, cellIndex) => (
+                <td key={`${rowIndex}-${cellIndex}`}>{cell}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function addSources(map: maplibregl.Map) {
+  map.addSource("s101-features", { type: "geojson", data: emptyCollection as any });
+  map.addSource("s101-data-coverage", { type: "geojson", data: emptyCollection as any });
+  map.addSource("s101-validation-errors", { type: "geojson", data: emptyCollection as any });
+  map.addSource("s101-selected-feature", { type: "geojson", data: emptyCollection as any });
+}
+
+function addLayers(map: maplibregl.Map) {
+  map.addLayer({
+    id: "s101-surface",
+    type: "fill",
+    source: "s101-features",
+    filter: ["in", ["geometry-type"], ["literal", ["Polygon", "MultiPolygon"]]],
+    paint: { "fill-color": ["match", ["get", "featureTypeCode"], 1, "#60a5fa", 2, "#2dd4bf", "#a78bfa"], "fill-opacity": 0.36 }
+  });
+  map.addLayer({
+    id: "s101-curve",
+    type: "line",
+    source: "s101-features",
+    filter: ["in", ["geometry-type"], ["literal", ["LineString", "MultiLineString"]]],
+    paint: { "line-color": "#1d4ed8", "line-width": 2 }
+  });
+  map.addLayer({
+    id: "s101-multipoint",
+    type: "circle",
+    source: "s101-features",
+    filter: ["==", ["geometry-type"], "MultiPoint"],
+    paint: { "circle-radius": 4, "circle-color": "#7c3aed", "circle-stroke-width": 1, "circle-stroke-color": "#ffffff" }
+  });
+  map.addLayer({
+    id: "s101-point",
+    type: "circle",
+    source: "s101-features",
+    filter: ["==", ["geometry-type"], "Point"],
+    paint: { "circle-radius": 5, "circle-color": "#15803d", "circle-stroke-width": 1, "circle-stroke-color": "#ffffff" }
+  });
+  map.addLayer({
+    id: "s101-data-coverage",
+    type: "line",
+    source: "s101-data-coverage",
+    paint: { "line-color": "#2563eb", "line-dasharray": [2, 2], "line-width": 2 }
+  });
+  map.addLayer({
+    id: "s101-validation-error",
+    type: "circle",
+    source: "s101-validation-errors",
+    paint: { "circle-radius": 7, "circle-color": "#dc2626", "circle-stroke-width": 2, "circle-stroke-color": "#ffffff" }
+  });
+  map.addLayer({
+    id: "s101-selected-feature-fill",
+    type: "fill",
+    source: "s101-selected-feature",
+    filter: ["in", ["geometry-type"], ["literal", ["Polygon", "MultiPolygon"]]],
+    paint: { "fill-color": "#f59e0b", "fill-opacity": 0.28 }
+  });
+  map.addLayer({
+    id: "s101-selected-feature-line",
+    type: "line",
+    source: "s101-selected-feature",
+    paint: { "line-color": "#f59e0b", "line-width": 4 }
+  });
+  map.addLayer({
+    id: "s101-selected-feature-point",
+    type: "circle",
+    source: "s101-selected-feature",
+    filter: ["in", ["geometry-type"], ["literal", ["Point", "MultiPoint"]]],
+    paint: { "circle-radius": 8, "circle-color": "#f59e0b", "circle-stroke-width": 2, "circle-stroke-color": "#ffffff" }
+  });
+}
+
 function formatValue(value: unknown) {
   if (value === null || value === undefined) {
     return "-";
@@ -803,21 +890,15 @@ function createDataCoverage(dataset: DatasetItem | null): FeatureGeoJsonCollecti
     return emptyCollection;
   }
   return {
-    type: "FeatureCollection",
+    ...emptyCollection,
     datasetVersionId: dataset.datasetVersionId,
     productSpecification: dataset.productSpecification,
-    featureCatalogueVersion: null,
-    portrayalCatalogueVersion: null,
     features: [
       {
         type: "Feature",
         id: `dataset-${dataset.datasetId}-coverage`,
         geometry: dataset.bbox,
-        properties: {
-          datasetId: dataset.datasetId,
-          datasetVersionId: dataset.datasetVersionId,
-          dsnm: dataset.dsnm
-        }
+        properties: { datasetId: dataset.datasetId, datasetVersionId: dataset.datasetVersionId, dsnm: dataset.dsnm }
       }
     ]
   };

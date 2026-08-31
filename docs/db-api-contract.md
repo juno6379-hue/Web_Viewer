@@ -201,6 +201,8 @@ Feature Catalogue와 Portrayal Catalogue가 아직 cache에 연결되지 않은 
 | Raw Record | raw record id, resource, ordinal, byte offset, payload hash | 선택 feature 1건의 raw locator |
 | Validation | rule id, severity, target, message | 선택 feature 관련 validation issue |
 
+Spatial 응답에는 `canonical.spatial_reference.smin/smax`를 `minScale/maxScale`로 포함합니다. UI는 이를 SCAMIN/scale range 확인에 사용합니다.
+
 ## QA summary 응답 예시
 
 ```json

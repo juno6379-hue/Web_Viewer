@@ -44,17 +44,19 @@ canonical
 9. MapLibre 지도에 feature를 표시합니다.
 10. 화면 상단에 dataset, edition, update, product spec, FC/PC, status version bar를 표시합니다.
 11. MapLibre layer를 Point, MultiPoint, Curve, Surface, Data Coverage, Validation Error, Selected Feature로 분리합니다.
-12. `GET /api/search/features?q=`와 검색 UI를 만듭니다.
-13. Feature Catalogue parser를 초기화 단계에서만 실행하도록 만듭니다.
-14. `catalogueSnapshotId`, catalogue version, SHA-256 hash를 포함한 normalized catalogue cache를 만듭니다.
-15. parser DB가 사용한 catalogue와 Viewer catalogue cache의 version/hash mismatch warning을 표시합니다.
-16. feature type과 attribute 이름을 `catalogueSnapshotId + code` 기준으로 표시합니다.
-17. Portrayal MVP는 feature type과 geometry type 기반 fallback MapLibre style로 구현합니다.
-18. 표준 Portrayal은 Lua runtime, drawing instruction, MapLibre adapter 구조를 먼저 고정한 뒤 단계적으로 구현합니다.
-19. feature inspector를 만듭니다.
-20. QA summary panel을 만듭니다.
-21. validation issue panel을 만듭니다.
-22. Playwright로 지도 nonblank, feature click, QA panel을 확인합니다.
+12. Lua/SCAMIN 확인을 위한 0~6 zoom band UI를 만듭니다.
+13. Feature Inspector Spatial 탭에서 선택 feature의 `SMIN/SMAX`를 표시합니다.
+14. `GET /api/search/features?q=`와 검색 UI를 만듭니다.
+15. Feature Catalogue parser를 초기화 단계에서만 실행하도록 만듭니다.
+16. `catalogueSnapshotId`, catalogue version, SHA-256 hash를 포함한 normalized catalogue cache를 만듭니다.
+17. parser DB가 사용한 catalogue와 Viewer catalogue cache의 version/hash mismatch warning을 표시합니다.
+18. feature type과 attribute 이름을 `catalogueSnapshotId + code` 기준으로 표시합니다.
+19. Portrayal MVP는 feature type과 geometry type 기반 fallback MapLibre style로 구현합니다.
+20. 표준 Portrayal은 Lua runtime, drawing instruction, MapLibre adapter 구조를 먼저 고정한 뒤 단계적으로 구현합니다.
+21. feature inspector를 만듭니다.
+22. QA summary panel을 만듭니다.
+23. validation issue panel을 만듭니다.
+24. Playwright로 지도 nonblank, feature click, QA panel을 확인합니다.
 
 ## 1차 구현 완료 기준
 
@@ -84,6 +86,7 @@ canonical
 | Version bar | 현재 dataset/version/catalogue/status context 표시 |
 | Layer 구조 | Point, MultiPoint, Curve, Surface, Data Coverage, Validation Error, Selected Feature 분리 |
 | Search | feature code, FOID, attribute, dataset 검색 API/UI 추가 |
+| Lua/SCAMIN | 0~6 zoom band와 선택 feature `SMIN/SMAX` 표시 |
 | Health check | `/health`, `/health/db`, `/health/catalogue` 추가 |
 | DB 계정 | `s100_viewer_readonly` 조회 전용 계정 원칙과 생성 SQL 추가 |
 | Catalogue model | version/hash/snapshot 기반 정규화 type 추가 |

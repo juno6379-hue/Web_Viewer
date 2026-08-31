@@ -7,6 +7,8 @@ export interface DatasetItem {
   editionNumber: number | null;
   updateNumber: number | null;
   purpose: string;
+  minScale: number | null;
+  maxScale: number | null;
   conformanceStatus: string | null;
   bbox: unknown;
   featureCount: number;
@@ -117,6 +119,8 @@ export interface SpatialItem {
   rrnm: number;
   rrid: number;
   orientation: number | null;
+  minScale: number | null;
+  maxScale: number | null;
   geometryType: string | null;
   srid: number | null;
   bbox: unknown;

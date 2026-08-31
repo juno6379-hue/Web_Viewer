@@ -59,12 +59,13 @@ canonical
 | 화면 | 내용 |
 | --- | --- |
 | Version bar | S-101, dataset, edition, update, product spec, FC/PC version, status |
-| 지도 | MapLibre 기반 S-101 feature layer |
-| Dataset panel | dataset/version 선택, parser/projection 상태 |
-| Search panel | feature code, FOID, attribute, dataset 기준 feature 검색과 지도 이동 |
+| Header | dataset/catalogue/validation context 상시 표시 |
+| Dataset Explorer | dataset/version 선택, 검색, layer toggle, QA 요약, Lua/SCAMIN 단계 |
+| Map Viewer | MapLibre 기반 S-101 feature layer와 0~6 zoom band |
+| Search | feature code, FOID, attribute, dataset 기준 feature 검색과 지도 이동 |
 | Layer panel | feature type, geometry type, viewing group filter |
 | Feature inspector | feature identity, catalogue name, attribute, association, geometry summary |
-| QA panel | projection, GeoJSON, geometry, validation 상태 |
+| QA Dashboard | projection, GeoJSON, geometry, validation 상태 |
 | Catalogue panel | feature/attribute/portrayal lookup 상태 |
 
 ## 지도 Layer 구조
@@ -93,6 +94,22 @@ MVP에서는 geometry 기준 fallback style을 적용합니다.
 | Data Coverage | dataset bbox line |
 | Validation Error | error marker source |
 | Selected Feature | 선택 feature 강조 layer |
+
+## Lua / SCAMIN 단계 UI
+
+현재 MVP는 Lua portrayal rule을 실행하지 않습니다. 다만 표준 Portrayal Engine으로 전환할 때 필요한 scale context를 검증하기 위해 0~6 단계 zoom band를 UI에 둡니다.
+
+```text
+0 Overview
+1 Regional
+2 Approach
+3 Coastal
+4 Harbour
+5 Berthing
+6 Detail
+```
+
+Dataset Explorer는 현재 단계, scale label, Lua fallback 상태를 표시합니다. Map Viewer는 `- / +`와 0~6 버튼으로 같은 단계를 이동합니다. 선택 feature의 `canonical.spatial_reference.smin/smax`는 Inspector Spatial 탭에서 확인합니다.
 
 ## 성능 원칙
 

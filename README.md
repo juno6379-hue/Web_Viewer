@@ -158,7 +158,25 @@ D:\dev\WebViewer
 | Portrayal engine interface | 진행 중 |
 | Portrayal Catalogue Lua engine | 다음 단계 |
 
-## Version Bar
+## 운영형 Viewer UI
+
+화면은 운영/QA 사용을 기준으로 다음 구조를 사용합니다.
+
+```text
+Header
+  Dataset / Catalogue / Validation context
+
+Main
+  Dataset Explorer
+  Map Viewer
+  Feature Inspector
+
+Bottom
+  QA Dashboard
+
+Footer
+  Projection / Catalogue / Portrayal / SCAMIN 상태
+```
 
 화면 상단에는 현재 사용자가 보고 있는 dataset version context를 항상 표시합니다.
 
@@ -192,6 +210,22 @@ S101 Layers
 ```
 
 MVP에서는 geometry type 기준 style을 사용합니다. 이후 `packages/portrayal`의 Portrayal Engine과 MapLibre Adapter 결과로 교체합니다.
+
+## Lua / SCAMIN 단계
+
+표준 Portrayal Engine은 Lua rule과 SCAMIN/scale denominator를 기준으로 feature 표시 여부와 drawing instruction을 결정합니다. 현재 MVP UI는 Lua runtime 실행 전 단계이므로, SCAMIN 확인용 0~6 zoom band를 제공합니다.
+
+| 단계 | 용도 |
+| --- | --- |
+| 0 | Overview |
+| 1 | Regional |
+| 2 | Approach |
+| 3 | Coastal |
+| 4 | Harbour |
+| 5 | Berthing |
+| 6 | Detail |
+
+지도 우측 하단의 `- / +`와 0~6 버튼으로 zoom in/out을 수행합니다. Feature Inspector의 Spatial 탭은 선택 feature의 `SMIN/SMAX`를 표시합니다.
 
 ## Search
 
