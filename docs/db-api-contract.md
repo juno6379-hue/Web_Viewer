@@ -1,29 +1,35 @@
-# S-101 Web Viewer DB and API Contract
+# S-101 Web Viewer DB/API 계약
 
-Date: 2026-08-31
+작성일: 2026-08-31
 
-## Database
+## DB
+
+개발 DB는 다음을 사용합니다.
 
 ```text
 Host=127.0.0.1;Port=55432;Database=s100_dev;Username=s100_dev;Password=CHANGE_ME_LOCAL_ONLY
 ```
 
-The DB runs in Docker container `s100_dev_postgis` and stores data in Docker volume `s100_dev_pgdata`.
+DB container는 `s100_dev_postgis`이고, 데이터는 Docker volume `s100_dev_pgdata`에 저장됩니다.
 
-## Read Model Priority
+## DB 조회 계층
 
-| Priority | Source | Use |
+Viewer 주요 조회는 projection schema를 중심으로 합니다.
+
+| 우선순위 | 테이블/View | 용도 |
 | ---: | --- | --- |
-| 1 | `projection.s101_feature_geojson` | Map feature geometry and GeoJSON payloads. |
-| 2 | `projection.s101_feature_current` | Current feature rows, geometry presence, feature filters. |
-| 3 | `projection.s101_dataset_current` | Dataset current metadata and extents. |
-| 4 | `canonical.*` | Source-model evidence for detail panels and QA checks. |
-| 5 | `validation.*` | Validation status and issue display. |
-| 6 | `audit.*` | Parser/projection run history. |
+| 1 | `projection.s101_dataset_current` | dataset 목록, 최신 version, bbox, dataset 상태 |
+| 2 | `projection.s101_feature_current` | current feature 목록, feature type, 속성 요약, geometry 존재 여부 |
+| 3 | `projection.s101_feature_geojson` | 지도 렌더링용 GeoJSON |
+| 4 | `projection.s101_feature_detail` | feature inspector용 상세 view 후보 |
+| 5 | `projection.s101_dataset_summary` | dataset summary view 후보 |
+| 6 | `projection.s101_qa_summary` | QA summary view 후보 |
 
-## Mandatory Access Boundary
+Frontend는 canonical 구조를 알 필요가 없어야 합니다. 복잡한 join이 필요하면 API 내부에 숨기거나 projection schema에 view를 추가합니다.
 
-The viewer access path is:
+## 접근 경계
+
+필수 구조:
 
 ```text
 canonical
@@ -32,49 +38,48 @@ canonical
   -> WebViewer
 ```
 
-`canonical.*` is not the viewer service model. It is the parser source of truth. `projection.*` is the service read model.
+`canonical.*`은 viewer service model이 아닙니다. 정본은 canonical이고, 서비스 조회는 projection입니다.
 
-Forbidden default behavior:
+금지되는 기본 동작:
 
-- building map features by joining `canonical.feature_instance` to `canonical.spatial_record`;
-- building display attributes directly from canonical attribute tables in the browser;
-- using `canonical.spatial_reference`, `canonical.curve_segment`, or `canonical.surface_boundary` as the primary rendering source;
-- exposing broad canonical table joins as generic viewer endpoints.
+- `canonical.feature_instance`와 `canonical.spatial_record`를 join해서 지도 feature를 만드는 것
+- browser에서 canonical attribute table을 직접 조립하는 것
+- `canonical.spatial_reference`, `canonical.curve_segment`, `canonical.surface_boundary`를 primary rendering source로 쓰는 것
+- broad canonical join endpoint를 일반 viewer API로 노출하는 것
 
-Allowed API-internal canonical reads:
+허용되는 API 내부 canonical read:
 
-- feature inspector evidence for one selected feature;
-- QA summary and validation diagnostics;
-- relationship and topology proof counts;
-- catalogue-enriched detail responses.
+- 선택된 feature 1건의 상세 근거 조회
+- QA summary와 validation diagnostics
+- feature/information/attribute/association 관계 검증
+- spatial/topology cross-version proof count
+- catalogue-enriched inspector 응답
 
-Map and list endpoints must prefer `projection.s101_feature_geojson`, `projection.s101_feature_current`, and `projection.s101_dataset_current`.
+## API endpoint 초안
 
-## API Endpoints
-
-| Endpoint | Purpose |
-| --- | --- |
-| `GET /api/health/db` | DB connectivity and current database/user. |
-| `GET /api/datasets` | Parsed dataset list. |
-| `GET /api/datasets/:datasetId/versions` | Dataset versions from `canonical.dataset_version`. |
-| `GET /api/features` | GeoJSON FeatureCollection from `projection.s101_feature_geojson`. |
-| `GET /api/features/:featureInstanceId` | Feature detail, attributes, associations, and geometry summary. The API may use canonical tables internally for this detail view. |
-| `GET /api/catalogue/features` | Feature Catalogue feature type metadata. |
-| `GET /api/catalogue/attributes` | Feature Catalogue attribute metadata. |
-| `GET /api/qa/summary` | Dashboard-equivalent QA counts. |
-| `GET /api/qa/issues` | Validation issues by dataset/version and severity. |
-
-## Feature Query Parameters
-
-| Parameter | Required | Meaning |
+| Endpoint | 용도 | 기본 조회 계층 |
 | --- | --- | --- |
-| `datasetId` | yes | Canonical dataset id. |
-| `datasetVersionId` | recommended | Current dataset version id. |
-| `bbox` | no | `minX,minY,maxX,maxY` in EPSG:4326. |
-| `featureTypeCode` | no | Numeric S-101 feature type code. |
-| `limit` | no | Maximum rows to return. |
+| `GET /api/health/db` | DB 연결 확인 | DB metadata |
+| `GET /api/datasets` | dataset 목록 | `projection.s101_dataset_current` |
+| `GET /api/datasets/:datasetId/versions` | dataset version 목록 | projection view 우선, 필요 시 `canonical.dataset_version` |
+| `GET /api/features` | 지도용 GeoJSON FeatureCollection | `projection.s101_feature_geojson` |
+| `GET /api/features/:featureInstanceId` | feature 상세정보 | `projection.s101_feature_detail` 또는 API 내부 canonical detail read |
+| `GET /api/catalogue/features` | Feature Catalogue feature type metadata | catalogue cache |
+| `GET /api/catalogue/attributes` | Feature Catalogue attribute metadata | catalogue cache |
+| `GET /api/qa/summary` | Dashboard와 동일한 QA count | `projection.s101_qa_summary` 또는 API 내부 QA query |
+| `GET /api/qa/issues` | validation issue 조회 | `validation.validation_issue` |
 
-## QA Summary Shape
+## feature 조회 parameter
+
+| Parameter | 필수 | 의미 |
+| --- | --- | --- |
+| `datasetId` | 예 | canonical dataset id |
+| `datasetVersionId` | 권장 | dataset version id |
+| `bbox` | 아니오 | EPSG:4326 기준 `minX,minY,maxX,maxY` |
+| `featureTypeCode` | 아니오 | S-101 feature type code |
+| `limit` | 아니오 | 최대 row 수 |
+
+## QA summary 응답 예시
 
 ```json
 {
@@ -98,11 +103,11 @@ Map and list endpoints must prefer `projection.s101_feature_geojson`, `projectio
 }
 ```
 
-## SQL Guardrails
+## SQL 원칙
 
-- Always scope spatial and QA queries by `dataset_version_id`.
-- Avoid full-table `ST_IsValid` scans.
-- Use bbox filtering for map queries.
-- Return `projection.s101_feature_geojson.geometry_geojson` directly when possible.
-- Use prepared parameters; do not interpolate user input into SQL.
-- Keep canonical joins inside API services; never require the WebViewer UI to understand canonical table topology.
+- spatial/QA 쿼리는 반드시 `dataset_version_id`로 제한합니다.
+- 지도 조회는 bbox를 지원합니다.
+- `projection.s101_feature_geojson.geometry_geojson`을 가능한 그대로 반환합니다.
+- user input은 반드시 parameter binding으로 처리합니다.
+- canonical join은 API service 내부에 숨깁니다.
+- WebViewer UI가 canonical topology를 이해해야 하는 구조를 만들지 않습니다.

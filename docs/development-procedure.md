@@ -1,20 +1,26 @@
-# S-101 V2.0 Web Viewer Development Procedure
+# S-101 V2.0 Web Viewer 개발 절차
 
-Date: 2026-08-31
+작성일: 2026-08-31
 
-## Goal
+## 목표
 
-Build an S-101 V2.0 Web Viewer in `D:\dev\WebViewer` using the existing `s100_dev` PostgreSQL/PostGIS database and the S-100/S-101 documentation, Feature Catalogue, and Portrayal Catalogue under:
+`D:\dev\WebViewer`에 S-101 V2.0 Web Viewer를 개발합니다. Viewer는 기존 parser가 만든 `s100_dev` DB와 S-100/S-101 문서, Feature Catalogue, Portrayal Catalogue를 사용합니다.
+
+자료 위치:
 
 ```text
 D:\dev\s100-parser\_2026-08-21 S100 문서 및 파서
 ```
 
-The viewer must be catalogue-aware, projection-driven, and QA-visible. It must not bypass the canonical model created by the parser.
+## 개발 원칙
 
-## Core DB Access Principle
+- 모든 주석과 관련 문서는 한글 작성을 원칙으로 합니다.
+- WebViewer는 projection 소비자입니다.
+- canonical은 정본이며 Viewer가 직접 조립하지 않습니다.
+- 복잡한 DB 조합은 API 또는 projection view에 숨깁니다.
+- Feature 상세정보가 필요할 때만 API 내부에서 canonical을 참조합니다.
 
-The required data path is:
+## 필수 DB 흐름
 
 ```text
 canonical
@@ -23,61 +29,41 @@ canonical
   -> WebViewer
 ```
 
-This means:
+## 개발 순서
 
-- `canonical` is the source of truth;
-- `projection` is the service read model;
-- `WebViewer` consumes projection through API endpoints;
-- the UI must not directly assemble features from canonical feature, attribute, spatial, or topology tables;
-- the API may read canonical tables only for detail panels, QA evidence, and validation context.
+1. source material path를 확인합니다.
+2. `D:\dev\WebViewer` 기본 프로젝트 구조를 만듭니다.
+3. Vite + React + TypeScript frontend를 구성합니다.
+4. Fastify API 서버를 구성합니다.
+5. `.env.example`과 DB 연결 설정을 정리합니다.
+6. `/api/health/db`로 `s100_dev` 연결을 확인합니다.
+7. `projection.s101_dataset_current` 기반 dataset 목록 API를 만듭니다.
+8. `projection.s101_feature_geojson` 기반 feature GeoJSON API를 만듭니다.
+9. MapLibre 지도에 feature를 표시합니다.
+10. Feature Catalogue parser/cache를 만듭니다.
+11. feature type과 attribute 이름을 catalogue 기반으로 표시합니다.
+12. Portrayal Catalogue parser/cache를 만듭니다.
+13. portrayal rule이 준비되지 않은 feature에는 fallback style을 적용합니다.
+14. feature inspector를 만듭니다.
+15. QA summary panel을 만듭니다.
+16. validation issue panel을 만듭니다.
+17. Playwright로 지도 nonblank, feature click, QA panel을 확인합니다.
 
-## Development Order
+## 1차 구현 완료 기준
 
-1. Confirm source material paths.
-2. Create `D:\dev\WebViewer`.
-3. Scaffold a modern web stack.
-4. Connect to `s100_dev`.
-5. Expose dataset/version APIs.
-6. Expose feature GeoJSON APIs from `projection.s101_feature_geojson`.
-7. Parse/cache Feature Catalogue mappings.
-8. Parse/cache Portrayal Catalogue rules and assets.
-9. Render MapLibre layers.
-10. Add feature inspect panel.
-11. Add dataset/version/filter controls.
-12. Add QA summary panel.
-13. Add validation issue panel.
-14. Add performance safeguards for large datasets.
-15. Write smoke tests and local run instructions.
-
-## Source Material
-
-| Input | Expected path |
+| 항목 | 완료 기준 |
 | --- | --- |
-| S-100/S-101 documents | `D:\dev\s100-parser\_2026-08-21 S100 문서 및 파서\문서` |
-| Existing parser reference | `D:\dev\s100-parser\_2026-08-21 S100 문서 및 파서\파서` |
-| Feature Catalogue archive | `D:\dev\s100-parser\_2026-08-21 S100 문서 및 파서\101_Feature_Catalogue_2.0.0.xml.signature.zip` |
-| Portrayal Catalogue archive | `D:\dev\s100-parser\_2026-08-21 S100 문서 및 파서\101_Portrayal_Catalogue_2.0.0.zip.signature.zip` |
-| Parser DB | `s100_dev` on local port `55432` |
+| DB 연결 | `/api/health/db`가 `s100_dev/s100_dev`를 반환 |
+| dataset 목록 | `projection.s101_dataset_current` 기반 목록 표시 |
+| 지도 표시 | `projection.s101_feature_geojson` 기반 feature 렌더링 |
+| feature 상세 | click 시 inspector 표시 |
+| catalogue | feature/attribute 이름 표시 |
+| QA | invalid/null geometry, missing GeoJSON, blocking issue 표시 |
 
-Do not commit extracted proprietary or large catalogue artifacts unless licensing and size are explicitly approved.
+## 금지 사항
 
-## First Implementation Milestone
-
-| Requirement | Pass condition |
-| --- | --- |
-| App starts | API and web dev servers run locally. |
-| DB connects | `/api/health/db` returns current database/user. |
-| Dataset list works | Viewer can list parsed S-101 datasets. |
-| Map renders | MapLibre shows features from `projection.s101_feature_geojson`. |
-| Inspect works | Clicking a feature shows type, IDs, attributes, and raw properties. |
-| QA visible | A selected dataset shows invalid/null geometry, missing GeoJSON, and blocking validation counts. |
-
-## Guardrails
-
-- Do not duplicate parser logic in the viewer.
-- Do not write to `canonical.*` from the viewer.
-- Do not use canonical joins as the primary map/list rendering path.
-- Treat `projection.*` as rebuildable read models.
-- Keep DB credentials in `.env`; commit only `.env.example`.
-- Keep large S-101 datasets and generated catalogue caches out of Git unless explicitly approved.
-- Show unresolved/null geometry as QA evidence; do not fabricate geometry in the viewer.
+- Viewer에서 parser logic을 복제하지 않습니다.
+- Viewer에서 canonical table에 write하지 않습니다.
+- canonical join을 map/list primary path로 사용하지 않습니다.
+- source 좌표가 부족한 null geometry를 임의로 생성하지 않습니다.
+- 대용량 dataset/catalogue cache를 Git에 커밋하지 않습니다.

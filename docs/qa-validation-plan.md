@@ -1,25 +1,25 @@
-# S-101 Web Viewer QA and Validation Plan
+# S-101 Web Viewer QA 및 검증 계획
 
-Date: 2026-08-31
+작성일: 2026-08-31
 
-## Purpose
+## 목적
 
-The Web Viewer must expose the same quality gates already used by `S101DashboardApp23.exe` so map rendering can be trusted against the parser database.
+Web Viewer는 `S101DashboardApp23.exe`에서 확인하던 품질 기준을 웹 화면에서도 보여야 합니다. 단, Viewer는 검사 결과를 소비하고 표시하는 역할이며 canonical 정본을 수정하지 않습니다.
 
-## Required QA Panels
+## QA panel 구성
 
-| Panel | Required content |
+| Panel | 표시 내용 |
 | --- | --- |
-| Dataset status | dataset id, latest version, edition, update number, profile, parser run status. |
-| Projection status | projected feature count, GeoJSON count, missing GeoJSON count. |
-| Geometry status | invalid geometry, null geometry, null-no-source, null-invalid-topology. |
-| Relationship status | feature/information instance links, attribute owners, association source/target. |
-| Topology status | spatial reference, curve endpoint, and surface boundary cross-version checks. |
-| Validation issues | critical/error/fatal issues first, warnings separately. |
+| Dataset status | dataset id, latest version, edition, update number, profile, parser run status |
+| Projection status | projected feature count, GeoJSON count, missing GeoJSON count |
+| Geometry status | invalid geometry, null geometry, null-no-source, null-invalid-topology |
+| Relationship status | feature/information instance link, attribute owner, association source/target |
+| Topology status | spatial reference, curve endpoint, surface boundary cross-version |
+| Validation issues | critical/error/fatal 우선, warning 별도 |
 
-## Pass Gates
+## 통과 기준
 
-| Gate | Required value |
+| 기준 | 요구값 |
 | --- | ---: |
 | Feature record without instance | 0 |
 | Information record without instance | 0 |
@@ -35,11 +35,11 @@ The Web Viewer must expose the same quality gates already used by `S101Dashboard
 | Null projection geometry | 0 |
 | Blocking validation issues | 0 |
 
-Null derived geometry can remain non-zero only when it is classified and does not cause projected/GeoJSON loss.
+Null derived geometry는 원인 분류가 있고 projection/GeoJSON 누락을 만들지 않는 경우에만 허용 가능한 상태로 표시합니다.
 
-## Smoke Dataset
+## smoke dataset
 
-Use the first five S-101 datasets for initial viewer smoke testing:
+초기 검증은 1~5번 dataset으로 수행합니다.
 
 ```text
 101KR001A0000.000
@@ -49,7 +49,7 @@ Use the first five S-101 datasets for initial viewer smoke testing:
 101KR001E0000.000
 ```
 
-Expected DB smoke result after the latest parser/dashboard flow:
+예상 DB 결과:
 
 | Dataset | Null geometry | Invalid geometry | Projected | GeoJSON | Missing GeoJSON |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -59,15 +59,15 @@ Expected DB smoke result after the latest parser/dashboard flow:
 | `101KR001D0000.000` | 56 | 0 | 311 | 311 | 0 |
 | `101KR001E0000.000` | 25 | 0 | 223 | 223 | 0 |
 
-## Browser Verification
+## browser 검증
 
-1. The app loads without console errors.
-2. Dataset list is populated from `s100_dev`.
-3. Selecting a dataset triggers feature loading.
-4. MapLibre canvas is nonblank.
-5. Feature layers are visible at the dataset extent.
-6. Clicking a feature opens an inspector.
-7. Inspector shows catalogue-resolved names when available.
-8. QA panel counts match DB query results.
-9. Missing GeoJSON and blocking validation counts are visible.
-10. Mobile and desktop layouts do not overlap text or controls.
+1. app이 console error 없이 로드됩니다.
+2. dataset list가 `s100_dev`에서 조회됩니다.
+3. dataset 선택 시 feature loading이 발생합니다.
+4. MapLibre canvas가 nonblank입니다.
+5. dataset extent에서 feature layer가 보입니다.
+6. feature click 시 inspector가 열립니다.
+7. inspector에 catalogue 기반 이름이 표시됩니다.
+8. QA panel count가 DB query 결과와 일치합니다.
+9. missing GeoJSON과 blocking validation count가 보입니다.
+10. desktop/mobile에서 control과 text가 겹치지 않습니다.
