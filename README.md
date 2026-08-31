@@ -107,6 +107,75 @@ D:\dev\WebViewer
 - Feature Catalogue 기반 이름과 attribute label을 표시합니다.
 - QA summary에서 invalid/null geometry, missing GeoJSON, blocking validation issue를 확인합니다.
 
+## 현재 구현 상태
+
+2026-08-31 기준 1차 skeleton 구현이 들어갔습니다.
+
+| 항목 | 상태 |
+| --- | --- |
+| Monorepo 구조 | 완료 |
+| Fastify API | 완료 |
+| React/Vite Web 앱 | 완료 |
+| MapLibre 지도 | 완료 |
+| `s100_dev` DB 연결 | 완료 |
+| dataset 목록 API | 완료 |
+| projection GeoJSON API | 완료 |
+| feature inspector API | 완료 |
+| QA summary API | 완료 |
+| Feature Catalogue parser | 다음 단계 |
+| Portrayal Catalogue style engine | 다음 단계 |
+
+## 실행 방법
+
+의존성 설치:
+
+```powershell
+npm install
+npm --prefix apps/api install
+npm --prefix apps/web install
+```
+
+DB 실행:
+
+```powershell
+cd D:\dev\s100-parser
+docker compose up -d s100-db
+```
+
+API 실행:
+
+```powershell
+cd D:\dev\WebViewer
+npm --prefix apps/api run start
+```
+
+Web 실행:
+
+```powershell
+cd D:\dev\WebViewer
+npm run dev:web
+```
+
+접속 URL:
+
+```text
+http://localhost:5173/
+```
+
+API 확인:
+
+```text
+http://localhost:5174/api/health/db
+http://localhost:5174/api/datasets
+```
+
+검증된 현재 서버:
+
+| 서버 | URL | 상태 |
+| --- | --- | --- |
+| API | `http://127.0.0.1:5174` | 실행 확인 |
+| Web | `http://localhost:5173` | HTTP 200 확인 |
+
 ## 관련 문서
 
 - `docs/development-procedure.md`: 개발 절차

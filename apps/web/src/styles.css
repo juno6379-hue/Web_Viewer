@@ -1,0 +1,168 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", "Malgun Gothic", Arial, sans-serif;
+  color: #172033;
+  background: #f4f7fb;
+}
+
+button,
+select {
+  font: inherit;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 360px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.side-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 22px;
+  overflow: auto;
+  border-right: 1px solid #d9e2ef;
+  background: #ffffff;
+}
+
+h1,
+h2 {
+  margin: 0;
+  letter-spacing: 0;
+}
+
+h1 {
+  font-size: 24px;
+}
+
+h2 {
+  font-size: 16px;
+}
+
+.muted {
+  margin: 6px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.panel-section {
+  display: grid;
+  gap: 10px;
+}
+
+label {
+  color: #334155;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+select {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 0 10px;
+  background: #ffffff;
+}
+
+.meta-grid,
+.qa-grid {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.meta-grid {
+  grid-template-columns: 90px minmax(0, 1fr);
+}
+
+.meta-grid dt,
+.qa-grid dt {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.meta-grid dd,
+.qa-grid dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-weight: 700;
+}
+
+.qa-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.qa-grid > div {
+  min-height: 54px;
+  border: 1px solid #d9e2ef;
+  border-radius: 6px;
+  padding: 8px;
+  background: #f8fafc;
+}
+
+.ok {
+  color: #15803d;
+}
+
+.warn {
+  color: #b45309;
+}
+
+.feature-detail pre {
+  max-height: 240px;
+  overflow: auto;
+  border: 1px solid #d9e2ef;
+  border-radius: 6px;
+  padding: 10px;
+  background: #0f172a;
+  color: #e2e8f0;
+  font-size: 12px;
+}
+
+.map-area {
+  position: relative;
+  min-width: 0;
+}
+
+.map {
+  position: absolute;
+  inset: 0;
+}
+
+.status-bar {
+  position: absolute;
+  z-index: 2;
+  left: 16px;
+  top: 16px;
+  max-width: min(620px, calc(100% - 32px));
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #334155;
+  font-size: 13px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+}
+
+@media (max-width: 860px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: 46vh 54vh;
+  }
+
+  .side-panel {
+    order: 2;
+    border-right: 0;
+    border-top: 1px solid #d9e2ef;
+  }
+
+  .map-area {
+    order: 1;
+  }
+}

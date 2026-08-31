@@ -1,0 +1,20 @@
+{
+  "name": "s101-web-viewer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -n API,WEB -c cyan,green \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:api": "npm --prefix apps/api run dev",
+    "dev:web": "npm --prefix apps/web run dev",
+    "install:all": "npm install && npm --prefix apps/api install && npm --prefix apps/web install",
+    "build": "npm --prefix packages/shared run build && npm --prefix packages/catalogue run build && npm --prefix apps/api run build && npm --prefix apps/web run build",
+    "typecheck": "npm --prefix packages/shared run typecheck && npm --prefix packages/catalogue run typecheck && npm --prefix apps/api run typecheck && npm --prefix apps/web run typecheck",
+    "test": "npm --prefix packages/shared run test && npm --prefix packages/catalogue run test && npm --prefix apps/api run test && npm --prefix apps/web run test",
+    "lint": "npm --prefix packages/shared run lint && npm --prefix packages/catalogue run lint && npm --prefix apps/api run lint && npm --prefix apps/web run lint"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0",
+    "typescript": "^5.6.0"
+  }
+}

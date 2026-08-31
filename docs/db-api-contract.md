@@ -69,6 +69,20 @@ canonical
 | `GET /api/qa/summary` | Dashboard와 동일한 QA count | `projection.s101_qa_summary` 또는 API 내부 QA query |
 | `GET /api/qa/issues` | validation issue 조회 | `validation.validation_issue` |
 
+## 현재 구현된 endpoint
+
+| Endpoint | 구현 상태 | 비고 |
+| --- | --- | --- |
+| `GET /api/health/db` | 구현 | `s100_dev/s100_dev` 연결 확인 |
+| `GET /api/datasets` | 구현 | `projection.s101_dataset_current`와 `projection.s101_feature_current` 사용 |
+| `GET /api/features` | 구현 | `projection.s101_feature_geojson` 중심, bbox/filter/limit 지원 |
+| `GET /api/features/:featureInstanceId` | 구현 | `projection.s101_feature_current` 중심 상세 |
+| `GET /api/qa/summary` | 구현 | API 내부에서 dataset version 범위로 QA count 계산 |
+| `GET /api/datasets/:datasetId/versions` | 예정 | projection view 또는 제한된 canonical read 필요 |
+| `GET /api/catalogue/features` | 예정 | catalogue cache 구현 후 연결 |
+| `GET /api/catalogue/attributes` | 예정 | catalogue cache 구현 후 연결 |
+| `GET /api/qa/issues` | 예정 | validation issue filter 구현 필요 |
+
 ## feature 조회 parameter
 
 | Parameter | 필수 | 의미 |

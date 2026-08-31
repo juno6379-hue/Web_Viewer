@@ -60,6 +60,25 @@ canonical
 | catalogue | feature/attribute 이름 표시 |
 | QA | invalid/null geometry, missing GeoJSON, blocking issue 표시 |
 
+## 2026-08-31 구현 결과
+
+1차 skeleton 구현 결과:
+
+| 항목 | 결과 |
+| --- | --- |
+| package 구성 | root, `apps/api`, `apps/web`, `packages/shared`, `packages/catalogue` 구성 |
+| API 서버 | Fastify 기반 서버 구성 |
+| Web 앱 | Vite + React + TypeScript 구성 |
+| 지도 | MapLibre GL JS 기반 지도 구성 |
+| Dataset API | `projection.s101_dataset_current` 중심 조회 |
+| Feature API | `projection.s101_feature_geojson` 중심 조회 |
+| Feature detail API | `projection.s101_feature_current` 중심 조회 |
+| QA summary API | projection count와 canonical evidence count를 API 내부에서 계산 |
+| 빌드 검증 | `npm run typecheck`, `npm run build` 통과 |
+| 실행 검증 | API health/datasets/features/qa 응답 확인, Web HTTP 200 확인 |
+
+현재 구현은 projection-first 원칙을 지킵니다. 지도와 목록은 projection을 사용하고, canonical은 QA summary 내부 근거 계산에만 제한적으로 사용합니다.
+
 ## 금지 사항
 
 - Viewer에서 parser logic을 복제하지 않습니다.
