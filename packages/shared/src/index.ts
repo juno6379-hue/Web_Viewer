@@ -20,6 +20,8 @@ export interface FeatureGeoJsonCollection {
   productSpecification: string;
   featureCatalogueVersion: string | null;
   portrayalCatalogueVersion: string | null;
+  portrayalMode?: "fallback" | "mvp-symbol" | "lua";
+  portrayalRuleCount?: number;
   features: Array<{
     type: "Feature";
     id: string;
@@ -178,6 +180,7 @@ export interface CatalogueRuntimeStatus {
   portrayalCatalogue: CatalogueSnapshotStatus | null;
   cacheReady: boolean;
   catalogueMismatch: boolean;
+  portrayalMode?: "fallback" | "mvp-symbol" | "lua";
   warning: string | null;
 }
 
@@ -197,4 +200,47 @@ export interface HealthStatus {
   projection: "ok" | "error";
   featureCatalogue: string | "not_loaded";
   portrayalCatalogue: string | "not_loaded";
+}
+
+export interface PortrayalPaletteResponse {
+  version: string;
+  mode: "day" | "dusk" | "night";
+  source: "catalogue" | "fallback";
+  colors: Record<string, string>;
+}
+
+export interface PortrayalSymbolItem {
+  symbolRef: string;
+  description: string;
+  endpoint: string;
+}
+
+export interface PortrayalSymbolManifest {
+  version: string;
+  source: "catalogue" | "fallback";
+  symbols: PortrayalSymbolItem[];
+}
+
+export interface PortrayalDrawingInstruction {
+  raw: string;
+  tokens: Record<string, string>;
+  instructionType: "point" | "line" | "area" | "text" | "null" | "unknown";
+  viewingGroup: string | null;
+  drawingPriority: number | null;
+  displayPlane: string | null;
+  symbolRef: string | null;
+  lineStyleRef: string | null;
+  areaFillRef: string | null;
+  colorFill: string | null;
+  text: string | null;
+}
+
+export interface PortrayalRuntimeStatus {
+  mode: "fallback" | "mvp-symbol" | "lua";
+  luaRuntime: "not_configured" | "configured";
+  symbolCount: number;
+  ruleCount: number;
+  paletteReady: boolean;
+  supportedFeatureNames: string[];
+  warning: string | null;
 }

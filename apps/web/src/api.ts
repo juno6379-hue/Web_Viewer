@@ -4,6 +4,9 @@ import type {
   FeatureDetail,
   FeatureGeoJsonCollection,
   FeatureSearchItem,
+  PortrayalPaletteResponse,
+  PortrayalRuntimeStatus,
+  PortrayalSymbolManifest,
   QaSummary
 } from "../../../packages/shared/src/index";
 
@@ -44,6 +47,22 @@ export async function fetchQaSummary(dataset: DatasetItem) {
 
 export async function fetchCatalogueStatus() {
   return getJson<CatalogueRuntimeStatus>("/api/catalogue/status");
+}
+
+export async function fetchPortrayalStatus() {
+  return getJson<PortrayalRuntimeStatus>("/api/portrayal/status");
+}
+
+export async function fetchPortrayalPalette(mode: "day" | "dusk" | "night" = "day") {
+  return getJson<PortrayalPaletteResponse>(`/api/portrayal/palette/${mode}`);
+}
+
+export async function fetchPortrayalSymbols() {
+  return getJson<PortrayalSymbolManifest>("/api/portrayal/symbols");
+}
+
+export function buildPortrayalSymbolUrl(endpoint: string) {
+  return `${apiBaseUrl}${endpoint}`;
 }
 
 export async function searchFeatures(query: string, datasetId?: string) {

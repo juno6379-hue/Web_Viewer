@@ -6,13 +6,21 @@ import type {
   FeatureDetail,
   FeatureGeoJsonCollection,
   FeatureSearchItem,
+  PortrayalDrawingInstruction,
+  PortrayalPaletteResponse,
+  PortrayalRuntimeStatus,
+  PortrayalSymbolManifest,
   QaSummary
 } from "../../../../packages/shared/src/index";
 import {
+  buildPortrayalSymbolUrl,
   fetchCatalogueStatus,
   fetchDatasets,
   fetchFeatureDetail,
   fetchFeatures,
+  fetchPortrayalPalette,
+  fetchPortrayalStatus,
+  fetchPortrayalSymbols,
   fetchQaSummary,
   searchFeatures
 } from "../api";
@@ -23,6 +31,7 @@ const emptyCollection: FeatureGeoJsonCollection = {
   productSpecification: "2.0",
   featureCatalogueVersion: null,
   portrayalCatalogueVersion: null,
+  portrayalMode: "fallback",
   features: []
 };
 
@@ -37,14 +46,38 @@ const portrayalStages = [
 ];
 
 const layerDefinitions = [
-  { id: "s101-point", label: "Point" },
+  { id: "s101-symbol", label: "Portrayal Symbol" },
+  { id: "s101-text", label: "Portrayal Text" },
+  { id: "s101-point", label: "Fallback Point" },
   { id: "s101-multipoint", label: "MultiPoint" },
   { id: "s101-curve", label: "Curve" },
+  { id: "s101-surface-outline", label: "Surface Outline" },
   { id: "s101-surface", label: "Surface" },
   { id: "s101-data-coverage", label: "Data Coverage" },
   { id: "s101-validation-error", label: "Validation Error" },
   { id: "s101-selected-feature-fill", label: "Selected Feature" }
 ];
+
+const portrayalColorValues: Record<string, string> = {
+  CHWHT: "#C9EDFF",
+  DEPVS: "#61B7FF",
+  DEPIT: "#58AF9C",
+  UIAFD: "#61B7FF",
+  UIAFF: "#BFBE8F",
+  NODTA: "#93AEBB",
+  LITGN: "#52E83B",
+  DNGHL: "#EA5471",
+  APLRT: "#E38039",
+  RESBL: "#2E7BFF",
+  TRFCD: "#C045D1",
+  CHBLK: "#25313A",
+  CHGRD: "#768C97",
+  CHYLW: "#E1E139",
+  CHRED: "#E84545",
+  CHGRN: "#34A853",
+  CHMGD: "#C045D1",
+  CHBRN: "#9B7653"
+};
 
 export function App() {
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -57,6 +90,9 @@ export function App() {
   const [qa, setQa] = useState<QaSummary | null>(null);
   const [detail, setDetail] = useState<FeatureDetail | null>(null);
   const [catalogueStatus, setCatalogueStatus] = useState<CatalogueRuntimeStatus | null>(null);
+  const [portrayalStatus, setPortrayalStatus] = useState<PortrayalRuntimeStatus | null>(null);
+  const [portrayalPalette, setPortrayalPalette] = useState<PortrayalPaletteResponse | null>(null);
+  const [portrayalSymbols, setPortrayalSymbols] = useState<PortrayalSymbolManifest | null>(null);
   const [selectedFeature, setSelectedFeature] = useState<FeatureGeoJsonCollection>(emptyCollection);
   const [dataCoverage, setDataCoverage] = useState<FeatureGeoJsonCollection>(emptyCollection);
   const [validationErrors] = useState<FeatureGeoJsonCollection>(emptyCollection);
@@ -93,6 +129,15 @@ export function App() {
     fetchCatalogueStatus()
       .then(setCatalogueStatus)
       .catch((error: Error) => setMessage(`catalogue 상태 조회 실패: ${error.message}`));
+    fetchPortrayalStatus()
+      .then(setPortrayalStatus)
+      .catch((error: Error) => setMessage(`portrayal 상태 조회 실패: ${error.message}`));
+    fetchPortrayalPalette("day")
+      .then(setPortrayalPalette)
+      .catch((error: Error) => setMessage(`portrayal palette 조회 실패: ${error.message}`));
+    fetchPortrayalSymbols()
+      .then(setPortrayalSymbols)
+      .catch((error: Error) => setMessage(`portrayal symbol 조회 실패: ${error.message}`));
   }, []);
 
   useEffect(() => {
@@ -121,7 +166,8 @@ export function App() {
     map.on("load", () => {
       addSources(map);
       addLayers(map);
-      map.on("click", ["s101-surface", "s101-curve", "s101-multipoint", "s101-point"], (event) => {
+      applyScaminFilters(map, activeStage.stage);
+      map.on("click", ["s101-surface", "s101-curve", "s101-symbol", "s101-multipoint", "s101-point"], (event) => {
         const feature = event.features?.[0];
         const featureInstanceId = feature?.properties?.featureInstanceId;
         if (!featureInstanceId) {
@@ -136,6 +182,29 @@ export function App() {
 
     mapRef.current = map;
   }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !portrayalSymbols) {
+      return;
+    }
+    const loadImages = () => {
+      const requiredSymbols = getRequiredPortrayalSymbols(features, portrayalSymbols);
+      if (requiredSymbols.length === 0) {
+        return;
+      }
+      registerPortrayalImages(map, requiredSymbols)
+        .then(() => {
+          setMessage(`portrayal symbol ${requiredSymbols.length}개 로딩 완료`);
+        })
+        .catch((error: Error) => setMessage(`portrayal symbol 이미지 로딩 실패: ${error.message}`));
+    };
+    if (map.isStyleLoaded()) {
+      loadImages();
+    } else {
+      map.once("load", loadImages);
+    }
+  }, [features, portrayalSymbols]);
 
   useEffect(() => {
     if (!selectedDataset) {
@@ -157,6 +226,8 @@ export function App() {
 
   useEffect(() => {
     updateGeoJsonSource("s101-features", features);
+    updateGeoJsonSource("s101-symbol-instructions", createPortrayalSymbolCollection(features));
+    updateGeoJsonSource("s101-text-instructions", createPortrayalTextCollection(features));
     const bounds = createBounds(features);
     if (bounds) {
       mapRef.current?.fitBounds(bounds, { padding: 60, maxZoom: activeStage.zoom, duration: 500 });
@@ -174,6 +245,10 @@ export function App() {
   useEffect(() => {
     updateGeoJsonSource("s101-validation-errors", validationErrors);
   }, [validationErrors]);
+
+  useEffect(() => {
+    applyScaminFilters(mapRef.current, activeStage.stage);
+  }, [activeStage.stage]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -202,6 +277,7 @@ export function App() {
     const boundedStage = Math.max(0, Math.min(6, nextStage));
     const stage = portrayalStages[boundedStage];
     setPortrayalStage(boundedStage);
+    applyScaminFilters(mapRef.current, boundedStage);
     mapRef.current?.easeTo({ zoom: stage.zoom, duration: 450 });
   }
 
@@ -294,7 +370,8 @@ export function App() {
       <footer className="viewer-footer">
         <span>projection.s101_feature_geojson</span>
         <span>Feature Catalogue: {catalogueStatus?.featureCatalogue?.version ?? "미연결"}</span>
-        <span>Portrayal: Lua 준비 / MVP fallback 사용 중</span>
+        <span>Portrayal: {portrayalStatus?.mode ?? features.portrayalMode ?? "fallback"} / Lua {portrayalStatus?.luaRuntime ?? "not_configured"}</span>
+        <span>Palette: {portrayalPalette?.source ?? "fallback"} {portrayalPalette?.version ?? "2.0.0"}</span>
         <span>SCAMIN 단계 {activeStage.stage}</span>
       </footer>
     </main>
@@ -779,6 +856,8 @@ function DataTable({ headers, rows }: { headers: string[]; rows: Array<Array<str
 
 function addSources(map: maplibregl.Map) {
   map.addSource("s101-features", { type: "geojson", data: emptyCollection as any });
+  map.addSource("s101-symbol-instructions", { type: "geojson", data: emptyCollection as any });
+  map.addSource("s101-text-instructions", { type: "geojson", data: emptyCollection as any });
   map.addSource("s101-data-coverage", { type: "geojson", data: emptyCollection as any });
   map.addSource("s101-validation-errors", { type: "geojson", data: emptyCollection as any });
   map.addSource("s101-selected-feature", { type: "geojson", data: emptyCollection as any });
@@ -790,27 +869,85 @@ function addLayers(map: maplibregl.Map) {
     type: "fill",
     source: "s101-features",
     filter: ["in", ["geometry-type"], ["literal", ["Polygon", "MultiPolygon"]]],
-    paint: { "fill-color": ["match", ["get", "featureTypeCode"], 1, "#60a5fa", 2, "#2dd4bf", "#a78bfa"], "fill-opacity": 0.36 }
+    paint: {
+      "fill-color": [
+        "case",
+        ["!=", ["get", "portrayalColorFill"], null],
+        portrayalColorExpression(["get", "portrayalColorFill"], "#C9EDFF"),
+        ["match", ["get", "portrayalDisplayClass"], "depth-area", "#61B7FF", "land-area", "#BFBE8F", "#C9EDFF"]
+      ] as any,
+      "fill-opacity": [
+        "case",
+        ["!=", ["get", "portrayalAreaFillRef"], null],
+        0.78,
+        ["match", ["get", "portrayalDisplayClass"], "depth-area", 0.72, "land-area", 0.9, 0.36]
+      ] as any
+    }
+  });
+  map.addLayer({
+    id: "s101-surface-outline",
+    type: "line",
+    source: "s101-features",
+    filter: ["all", ["in", ["geometry-type"], ["literal", ["Polygon", "MultiPolygon"]]], ["!=", ["get", "portrayalLineStyleRef"], null]] as any,
+    paint: {
+      "line-color": portrayalColorExpression(["coalesce", ["get", "portrayalLineColor"], "CHBLK"], "#25313A") as any,
+      "line-width": ["interpolate", ["linear"], ["zoom"], 7, 0.7, 13, 1.8],
+      "line-dasharray": ["case", ["==", ["get", "portrayalLineStyleRef"], "_simple_"], ["literal", [2, 2]], ["literal", [1, 0]]]
+    }
   });
   map.addLayer({
     id: "s101-curve",
     type: "line",
     source: "s101-features",
     filter: ["in", ["geometry-type"], ["literal", ["LineString", "MultiLineString"]]],
-    paint: { "line-color": "#1d4ed8", "line-width": 2 }
+    paint: {
+      "line-color": portrayalColorExpression(["coalesce", ["get", "portrayalLineColor"], "RESBL"], "#1d4ed8") as any,
+      "line-width": ["case", ["!=", ["get", "portrayalLineStyleRef"], null], 2.4, 2] as any,
+      "line-dasharray": ["case", ["==", ["get", "portrayalLineStyleRef"], "_simple_"], ["literal", [2, 2]], ["literal", [1, 0]]]
+    }
   });
   map.addLayer({
     id: "s101-multipoint",
     type: "circle",
     source: "s101-features",
-    filter: ["==", ["geometry-type"], "MultiPoint"],
+    filter: ["all", ["==", ["geometry-type"], "MultiPoint"], ["==", ["get", "portrayalSymbolRef"], null]] as any,
     paint: { "circle-radius": 4, "circle-color": "#7c3aed", "circle-stroke-width": 1, "circle-stroke-color": "#ffffff" }
+  });
+  map.addLayer({
+    id: "s101-symbol",
+    type: "symbol",
+    source: "s101-symbol-instructions",
+    filter: ["!=", ["get", "portrayalSymbolRef"], null] as any,
+    layout: {
+      "icon-image": ["get", "portrayalSymbolRef"],
+      "icon-size": ["interpolate", ["linear"], ["zoom"], 8, 0.65, 14, 1.15],
+      "icon-allow-overlap": true,
+      "icon-ignore-placement": false
+    }
+  });
+  map.addLayer({
+    id: "s101-text",
+    type: "symbol",
+    source: "s101-text-instructions",
+    filter: ["!=", ["get", "portrayalText"], null] as any,
+    layout: {
+      "text-field": ["get", "portrayalText"],
+      "text-size": ["interpolate", ["linear"], ["zoom"], 8, 9, 14, 13],
+      "text-font": ["Open Sans Regular", "Arial Unicode MS Regular"],
+      "text-allow-overlap": true,
+      "text-ignore-placement": false
+    },
+    paint: {
+      "text-color": "#111827",
+      "text-halo-color": "#ffffff",
+      "text-halo-width": 1.1
+    }
   });
   map.addLayer({
     id: "s101-point",
     type: "circle",
     source: "s101-features",
-    filter: ["==", ["geometry-type"], "Point"],
+    filter: ["all", ["==", ["geometry-type"], "Point"], ["==", ["get", "portrayalSymbolRef"], null]] as any,
     paint: { "circle-radius": 5, "circle-color": "#15803d", "circle-stroke-width": 1, "circle-stroke-color": "#ffffff" }
   });
   map.addLayer({
@@ -845,6 +982,79 @@ function addLayers(map: maplibregl.Map) {
     filter: ["in", ["geometry-type"], ["literal", ["Point", "MultiPoint"]]],
     paint: { "circle-radius": 8, "circle-color": "#f59e0b", "circle-stroke-width": 2, "circle-stroke-color": "#ffffff" }
   });
+}
+
+function getRequiredPortrayalSymbols(collection: FeatureGeoJsonCollection, manifest: PortrayalSymbolManifest) {
+  const symbolRefs = new Set<string>();
+  for (const feature of collection.features) {
+    const symbolRef = feature.properties.portrayalSymbolRef;
+    if (typeof symbolRef === "string" && symbolRef.length > 0) {
+      symbolRefs.add(symbolRef);
+    }
+    const drawingInstructions = feature.properties.portrayalDrawingInstructions;
+    if (Array.isArray(drawingInstructions)) {
+      for (const instruction of drawingInstructions as PortrayalDrawingInstruction[]) {
+        if (typeof instruction.symbolRef === "string" && instruction.symbolRef.length > 0) {
+          symbolRefs.add(instruction.symbolRef);
+        }
+      }
+    }
+  }
+  return manifest.symbols.filter((symbol) => symbolRefs.has(symbol.symbolRef));
+}
+
+async function registerPortrayalImages(map: maplibregl.Map, symbols: PortrayalSymbolManifest["symbols"]) {
+  await Promise.all(
+    symbols.map(async (symbol) => {
+      if (map.hasImage(symbol.symbolRef)) {
+        return;
+      }
+      const image = await loadImage(buildPortrayalSymbolUrl(symbol.endpoint));
+      if (!map.hasImage(symbol.symbolRef)) {
+        map.addImage(symbol.symbolRef, image, { pixelRatio: 1 });
+      }
+    })
+  );
+}
+
+function portrayalColorExpression(input: unknown[], fallback: string): unknown[] {
+  const expression: unknown[] = ["match", input];
+  for (const [name, color] of Object.entries(portrayalColorValues)) {
+    expression.push(name, color);
+  }
+  expression.push(fallback);
+  return expression;
+}
+
+function loadImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolveImage, rejectImage) => {
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    image.onload = () => resolveImage(image);
+    image.onerror = () => rejectImage(new Error(url));
+    image.src = url;
+  });
+}
+
+function applyScaminFilters(map: maplibregl.Map | null, stage: number) {
+  if (!map || !map.isStyleLoaded()) {
+    return;
+  }
+  const stageFilter = ["<=", ["to-number", ["coalesce", ["get", "portrayalMinStage"], 0]], stage] as unknown[];
+  const layerFilters: Record<string, unknown[]> = {
+    "s101-surface": ["all", ["in", ["geometry-type"], ["literal", ["Polygon", "MultiPolygon"]]], stageFilter],
+    "s101-surface-outline": ["all", ["in", ["geometry-type"], ["literal", ["Polygon", "MultiPolygon"]]], ["!=", ["get", "portrayalLineStyleRef"], null], stageFilter],
+    "s101-curve": ["all", ["in", ["geometry-type"], ["literal", ["LineString", "MultiLineString"]]], stageFilter],
+    "s101-multipoint": ["all", ["==", ["geometry-type"], "MultiPoint"], ["==", ["get", "portrayalSymbolRef"], null], stageFilter],
+    "s101-symbol": ["all", ["!=", ["get", "portrayalSymbolRef"], null], stageFilter],
+    "s101-text": ["all", ["!=", ["get", "portrayalText"], null], stageFilter],
+    "s101-point": ["all", ["==", ["geometry-type"], "Point"], ["==", ["get", "portrayalSymbolRef"], null], stageFilter]
+  };
+  for (const [layerId, filter] of Object.entries(layerFilters)) {
+    if (map.getLayer(layerId)) {
+      map.setFilter(layerId, filter as any);
+    }
+  }
 }
 
 function formatValue(value: unknown) {
@@ -883,6 +1093,76 @@ function createBoundsFromGeometry(geometry: GeometryLike | null) {
     bounds.extend(coordinate as [number, number]);
   }
   return bounds;
+}
+
+function createPortrayalSymbolCollection(collection: FeatureGeoJsonCollection): FeatureGeoJsonCollection {
+  return {
+    ...collection,
+    features: collection.features.flatMap((feature) => {
+      const drawingInstructions = feature.properties.portrayalDrawingInstructions;
+      if (!Array.isArray(drawingInstructions)) {
+        const symbolRef = feature.properties.portrayalSymbolRef;
+        return typeof symbolRef === "string" && symbolRef.length > 0 ? [feature] : [];
+      }
+
+      return (drawingInstructions as PortrayalDrawingInstruction[])
+        .filter((instruction) => instruction.instructionType === "point" && instruction.symbolRef)
+        .map((instruction, index) => ({
+          ...feature,
+          id: `${feature.id}-symbol-${index}`,
+          geometry: geometryFromAugmentedPoint(instruction.tokens.AugmentedPoint) ?? feature.geometry,
+          properties: {
+            ...feature.properties,
+            portrayalSymbolRef: instruction.symbolRef,
+            portrayalViewingGroup: instruction.viewingGroup,
+            portrayalDrawingPriority: instruction.drawingPriority,
+            portrayalDisplayPlane: instruction.displayPlane
+          }
+        }));
+    })
+  };
+}
+
+function createPortrayalTextCollection(collection: FeatureGeoJsonCollection): FeatureGeoJsonCollection {
+  return {
+    ...collection,
+    features: collection.features.flatMap((feature) => {
+      const drawingInstructions = feature.properties.portrayalDrawingInstructions;
+      if (!Array.isArray(drawingInstructions)) {
+        return [];
+      }
+
+      return (drawingInstructions as PortrayalDrawingInstruction[])
+        .filter((instruction) => instruction.instructionType === "text" && instruction.text)
+        .map((instruction, index) => ({
+          ...feature,
+          id: `${feature.id}-text-${index}`,
+          geometry: geometryFromAugmentedPoint(instruction.tokens.AugmentedPoint) ?? feature.geometry,
+          properties: {
+            ...feature.properties,
+            portrayalText: instruction.text,
+            portrayalViewingGroup: instruction.viewingGroup,
+            portrayalDrawingPriority: instruction.drawingPriority,
+            portrayalDisplayPlane: instruction.displayPlane
+          }
+        }));
+    })
+  };
+}
+
+function geometryFromAugmentedPoint(value: unknown): GeometryLike | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const parts = value.split(",").map((part) => part.trim());
+  const x = Number(parts[1]);
+  const y = Number(parts[2]);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    return null;
+  }
+  const z = Number(parts[3]);
+  const coordinates = Number.isFinite(z) ? [x, y, z] : [x, y];
+  return { type: "Point", coordinates };
 }
 
 function createDataCoverage(dataset: DatasetItem | null): FeatureGeoJsonCollection {

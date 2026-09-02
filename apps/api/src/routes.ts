@@ -1,4 +1,7 @@
 import type { FastifyInstance } from "fastify";
+import { createHash } from "node:crypto";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { basename, join, resolve } from "node:path";
 import { z } from "zod";
 import type {
   CatalogueRuntimeStatus,
@@ -7,13 +10,101 @@ import type {
   FeatureGeoJsonCollection,
   FeatureSearchItem,
   HealthStatus,
+  PortrayalDrawingInstruction,
+  PortrayalPaletteResponse,
+  PortrayalRuntimeStatus,
+  PortrayalSymbolManifest,
   QaSummary
 } from "../../../packages/shared/src/index.js";
+import { parseDrawingInstructionText } from "../../../packages/portrayal/src/index.js";
+import { ExternalLuaPortrayalRuntime } from "./luaPortrayalRuntime.js";
 import { query } from "./db.js";
 
 const productSpecification = "2.0";
-const featureCatalogueVersion: string | null = null;
-const portrayalCatalogueVersion: string | null = null;
+const featureCatalogueVersion: string | null = process.env.FEATURE_CATALOGUE_VERSION ?? "2.0.0";
+const portrayalCatalogueVersion: string | null = process.env.PORTRAYAL_CATALOGUE_VERSION ?? "2.0.0";
+const defaultPortrayalCataloguePath =
+  "D:\\dev\\s100-parser\\_2026-08-21 S100 臾몄꽌 諛??뚯꽌\\101_Portrayal_Catalogue_2.0.0.zip.signature\\S-101\\CATALOGUES\\101_Portrayal_Catalogue_2.0.0\\PortrayalCatalog";
+
+const defaultFeatureCataloguePath =
+  "D:\\dev\\s100-parser\\_2026-08-21 S100 臾몄꽌 諛??뚯꽌\\101_Feature_Catalogue_2.0.0.xml.signature\\S-101\\CATALOGUES\\101_Feature_Catalogue_2.0.0.xml";
+
+const s101PaletteDay: Record<string, string> = {
+  CHWHT: "#C9EDFF",
+  DEPVS: "#61B7FF",
+  DEPIT: "#58AF9C",
+  UIAFD: "#61B7FF",
+  UIAFF: "#BFBE8F",
+  NODTA: "#93AEBB",
+  LITGN: "#52E83B",
+  DNGHL: "#EA5471",
+  APLRT: "#E38039",
+  RESBL: "#2E7BFF",
+  TRFCD: "#C045D1",
+  CHBLK: "#25313A",
+  CHGRD: "#768C97",
+  CHYLW: "#E1E139",
+  CHRED: "#E84545",
+  CHGRN: "#34A853",
+  CHMGD: "#C045D1",
+  CHBRN: "#9B7653"
+};
+
+const fallbackPortrayalSymbols = [
+  "BOYCAR01",
+  "BOYCAR02",
+  "BOYCAR03",
+  "BOYCAR04",
+  "BOYDEF03",
+  "BOYLAT13",
+  "BOYLAT14",
+  "BOYLAT23",
+  "BOYLAT24",
+  "BOYSAW12",
+  "BOYSPP15",
+  "BCNCAR01",
+  "BCNCAR02",
+  "BCNCAR03",
+  "BCNCAR04",
+  "BCNDEF13",
+  "BCNLAT15",
+  "BCNLAT16",
+  "BCNLAT21",
+  "BCNLAT22",
+  "BCNSAW21",
+  "BCNSPP13",
+  "LIGHTS11",
+  "LIGHTS12",
+  "LIGHTS13",
+  "LIGHTS81",
+  "LIGHTS82",
+  "ACHARE02",
+  "DANGER01",
+  "DANGER02",
+  "DANGER03",
+  "FOULGND1",
+  "OBSTRN01",
+  "OBSTRN03",
+  "OBSTRN11",
+  "UWTROC03",
+  "UWTROC04",
+  "WRECKS01",
+  "WRECKS04",
+  "WRECKS05",
+  "DEPARE01"
+] as const;
+
+type PortrayalSymbolCatalogItem = {
+  symbolRef: string;
+  description: string;
+  endpoint: string;
+  fileName: string;
+};
+
+let portrayalSymbolCache: { catalogueRoot: string | null; items: PortrayalSymbolCatalogItem[] } | null = null;
+let portrayalRuleCache: { catalogueRoot: string | null; files: string[] } | null = null;
+let featureNameByCodeCache: { cataloguePath: string | null; names: Map<number, string> } | null = null;
+let attributeNameByCodeCache: { cataloguePath: string | null; names: Map<number, string> } | null = null;
 
 const numberText = z.string().trim().regex(/^\d+$/).transform((value) => Number(value));
 const featureQuerySchema = z.object({
@@ -131,6 +222,63 @@ export function registerRoutes(app: FastifyInstance) {
 
   app.get("/api/catalogue/status", async (): Promise<CatalogueRuntimeStatus> => getCatalogueStatus());
 
+  app.get("/api/portrayal/status", async (): Promise<PortrayalRuntimeStatus> => ({
+    mode: getPortrayalMode(),
+    luaRuntime: getLuaRuntimePath() ? "configured" : "not_configured",
+    symbolCount: getPortrayalSymbolItems().length,
+    ruleCount: getPortrayalRuleFiles().length,
+    paletteReady: true,
+    supportedFeatureNames: [
+      "BuoyLateral",
+      "BuoyCardinal",
+      "BeaconLateral",
+      "BeaconCardinal",
+      "LightAllAround",
+      "LightSectored",
+      "Wreck",
+      "Obstruction",
+      "DepthArea"
+    ],
+    warning: getLuaRuntimePath()
+      ? null
+      : "LUA_RUNTIME_PATH媛 ?놁뼱 S-101 Lua rule ?ㅽ뻾? 鍮꾪솢?깆엯?덈떎. feature ?묐떟? DrawingInstruction 援ъ“濡??대젮媛硫? Lua媛 ?꾩슂??rule? ?꾩떆 fallback instruction???ъ슜?⑸땲??"
+  }));
+
+  app.get("/api/portrayal/palette/:mode", async (request): Promise<PortrayalPaletteResponse> => {
+    const params = z.object({ mode: z.enum(["day", "dusk", "night"]) }).parse(request.params);
+    return {
+      version: portrayalCatalogueVersion ?? "2.0.0",
+      mode: params.mode,
+      source: getPortrayalCatalogueRoot() ? "catalogue" : "fallback",
+      colors: s101PaletteDay
+    };
+  });
+
+  app.get("/api/portrayal/symbols", async (): Promise<PortrayalSymbolManifest> => ({
+    version: portrayalCatalogueVersion ?? "2.0.0",
+    source: getPortrayalCatalogueRoot() ? "catalogue" : "fallback",
+    symbols: getPortrayalSymbolItems().map(({ symbolRef, description, endpoint }) => ({
+      symbolRef,
+      description,
+      endpoint
+    }))
+  }));
+
+  app.get("/api/portrayal/symbols/:symbolRef.svg", async (request, reply) => {
+    const params = z.object({ symbolRef: z.string().trim().min(1) }).parse(request.params);
+    const symbolRef = params.symbolRef.toUpperCase();
+    if (!/^[A-Z0-9_-]+$/.test(symbolRef) || !getPortrayalSymbolItems().some((symbol) => symbol.symbolRef === symbolRef)) {
+      reply.code(404);
+      return { error: "吏?먰븯吏 ?딅뒗 Portrayal symbol?낅땲??", symbolRef };
+    }
+    reply.type("image/svg+xml; charset=utf-8");
+    const catalogueSymbolPath = findCatalogueSymbolPath(symbolRef);
+    if (catalogueSymbolPath) {
+      return inlineSvgStyle(readFileSync(catalogueSymbolPath, "utf8"), "day");
+    }
+    return createFallbackSymbolSvg(symbolRef);
+  });
+
   app.get("/api/features", async (request) => {
     const parsed = featureQuerySchema.parse(request.query);
     const limit = Math.min(parsed.limit ?? 5000, 20000);
@@ -148,7 +296,7 @@ export function registerRoutes(app: FastifyInstance) {
     if (parsed.bbox) {
       const parts = parsed.bbox.split(",").map((part) => Number(part.trim()));
       if (parts.length !== 4 || parts.some((part) => !Number.isFinite(part))) {
-        const error = new Error("bbox는 minX,minY,maxX,maxY 형식이어야 합니다.");
+        const error = new Error("bbox??minX,minY,maxX,maxY ?뺤떇?댁뼱???⑸땲??");
         Object.assign(error, { statusCode: 400 });
         throw error;
       }
@@ -177,22 +325,46 @@ export function registerRoutes(app: FastifyInstance) {
       values
     );
 
+    const baseFeatures = result.rows.map((row) => {
+      const featureName = resolveFeatureName({ featureTypeCode: row.feature_type_code });
+      const properties = {
+        ...(row.properties ?? {}),
+        featureName,
+        featureInstanceId: row.feature_instance_id,
+        featureTypeCode: row.feature_type_code
+      };
+      return {
+        type: "Feature" as const,
+        id: row.feature_instance_id,
+        geometry: row.geometry_geojson,
+        properties
+      };
+    });
+    const luaInstructionsByFeature = await createLuaDrawingInstructions(baseFeatures);
+
     const collection: FeatureGeoJsonCollection = {
       type: "FeatureCollection",
       datasetVersionId: parsed.datasetVersionId === undefined ? null : String(parsed.datasetVersionId),
       productSpecification,
       featureCatalogueVersion,
       portrayalCatalogueVersion,
-      features: result.rows.map((row) => ({
-        type: "Feature",
-        id: row.feature_instance_id,
-        geometry: row.geometry_geojson,
-        properties: {
-          ...row.properties,
-          featureInstanceId: row.feature_instance_id,
-          featureTypeCode: row.feature_type_code
-        }
-      }))
+      portrayalMode: getPortrayalMode(),
+      portrayalRuleCount: getPortrayalRuleFiles().length,
+      features: baseFeatures.map((feature) => {
+        const portrayalProperties = createFeaturePortrayalProperties(
+          feature.properties,
+          luaInstructionsByFeature.get(feature.id) ?? null
+        );
+        return {
+          type: "Feature",
+          id: feature.id,
+          geometry: feature.geometry,
+          properties: {
+            ...feature.properties,
+            ...portrayalProperties
+          }
+        };
+      })
     };
     return collection;
   });
@@ -278,7 +450,7 @@ export function registerRoutes(app: FastifyInstance) {
       datasetVersionId: row.dataset_version_id,
       dsnm: row.dsnm,
       featureTypeCode: row.feature_type_code,
-      featureName: null,
+      featureName: resolveFeatureName({ featureTypeCode: row.feature_type_code }),
       foid: { agen: row.foid_agen, fidn: row.foid_fidn, fids: row.foid_fids },
       geometryType: row.geometry_type,
       bbox: row.bbox,
@@ -344,7 +516,7 @@ export function registerRoutes(app: FastifyInstance) {
     );
     const row = result.rows[0];
     if (!row) {
-      const error = new Error("feature를 찾을 수 없습니다.");
+      const error = new Error("feature瑜?李얠쓣 ???놁뒿?덈떎.");
       Object.assign(error, { statusCode: 404 });
       throw error;
     }
@@ -553,8 +725,8 @@ export function registerRoutes(app: FastifyInstance) {
       datasetId: row.dataset_id,
       datasetVersionId: row.dataset_version_id,
       featureRecordId: row.feature_record_id,
-      catalogueSnapshotId: null,
-      featureName: null,
+      catalogueSnapshotId: getFeatureCatalogueSnapshotId(),
+      featureName: resolveFeatureName({ featureTypeCode: row.feature_type_code }),
       featureTypeCode: row.feature_type_code,
       foid: { agen: row.foid_agen, fidn: row.foid_fidn, fids: row.foid_fids },
       rcid: row.rcid,
@@ -570,18 +742,18 @@ export function registerRoutes(app: FastifyInstance) {
       simpleAttributes: simpleAttributes.rows.map((attribute) => ({
         id: attribute.id,
         code: attribute.code,
-        name: attribute.name,
+        name: attribute.name ?? attributeNameByCode(attribute.code),
         atix: attribute.atix,
         paix: attribute.paix,
         atin: attribute.atin,
-        valueType: attribute.value_type,
+        valueType: attribute.value_type === "Unknown" ? null : attribute.value_type,
         value: attribute.value,
         rawValue: attribute.raw_value
       })),
       complexAttributes: complexAttributes.rows.map((attribute) => ({
         id: attribute.id,
         code: attribute.code,
-        name: attribute.name,
+        name: attribute.name ?? attributeNameByCode(attribute.code),
         atix: attribute.atix,
         paix: attribute.paix,
         occurrenceOrdinal: attribute.occurrence_ordinal
@@ -676,6 +848,23 @@ export function registerRoutes(app: FastifyInstance) {
               WHERE sb.surface_record_id = sr.spatial_record_id
                 AND boundary.derived_geometry IS NOT NULL
             )
+          ) OR (
+            sr.spatial_type = 'surface'
+            AND (
+              SELECT COUNT(*)::int
+              FROM canonical.surface_boundary sb
+              JOIN canonical.spatial_record boundary ON boundary.spatial_record_id = sb.referenced_spatial_record_id
+              WHERE sb.surface_record_id = sr.spatial_record_id
+                AND boundary.derived_geometry IS NOT NULL
+            ) <= 1
+            AND NOT EXISTS (
+              SELECT 1
+              FROM canonical.surface_boundary sb
+              JOIN canonical.spatial_record boundary ON boundary.spatial_record_id = sb.referenced_spatial_record_id
+              WHERE sb.surface_record_id = sr.spatial_record_id
+                AND boundary.derived_geometry IS NOT NULL
+                AND ST_IsClosed(boundary.derived_geometry)
+            )
           ) THEN 1 ELSE 0 END AS no_source
         FROM sr
         WHERE sr.derived_geometry IS NULL
@@ -751,14 +940,75 @@ export function registerRoutes(app: FastifyInstance) {
 }
 
 async function getCatalogueStatus(): Promise<CatalogueRuntimeStatus> {
+  const featurePath = getFeatureCataloguePath();
+  const featureStat = featurePath && existsSync(featurePath) ? statSync(featurePath) : null;
+  const featureSnapshot =
+    featurePath && featureStat
+      ? {
+          catalogueSnapshotId: `fc-${createHash("sha256").update(featurePath).digest("hex").slice(0, 12)}`,
+          productId: "S-101",
+          catalogueType: "feature" as const,
+          version: featureCatalogueVersion ?? "2.0.0",
+          hashAlgorithm: "SHA-256" as const,
+          hash: createHash("sha256").update(readFileSync(featurePath)).digest("hex"),
+          sourcePath: basename(featurePath),
+          loadedAt: new Date(featureStat.mtimeMs).toISOString()
+        }
+      : null;
+
+  const portrayalPath = getPortrayalCatalogueRoot();
+  const portrayalStat = portrayalPath && existsSync(portrayalPath) ? statSync(portrayalPath) : null;
+  const portrayalSnapshot =
+    portrayalPath && portrayalStat
+      ? {
+          catalogueSnapshotId: `pc-${createHash("sha256").update(portrayalPath).digest("hex").slice(0, 12)}`,
+          productId: "S-101",
+          catalogueType: "portrayal" as const,
+          version: portrayalCatalogueVersion ?? "2.0.0",
+          hashAlgorithm: "SHA-256" as const,
+          hash: createHash("sha256").update(`${portrayalPath}:${portrayalStat.mtimeMs}:${portrayalStat.size}`).digest("hex"),
+          sourcePath: basename(portrayalPath),
+          loadedAt: new Date(portrayalStat.mtimeMs).toISOString()
+        }
+      : null;
   return {
-    featureCatalogue: null,
-    portrayalCatalogue: null,
-    cacheReady: false,
+    featureCatalogue: featureSnapshot,
+    portrayalCatalogue: portrayalSnapshot,
+    cacheReady: true,
     catalogueMismatch: false,
+    portrayalMode: getPortrayalMode(),
     warning:
-      "Feature Catalogue XML 초기화 cache와 parser DB catalogue version/hash 비교는 다음 구현 단계에서 연결합니다."
+      featureSnapshot && portrayalSnapshot && getLuaRuntimePath()
+        ? null
+        : "Feature/Portrayal Catalogue 또는 LUA_RUNTIME_PATH 설정이 완전하지 않아 fallback 정보가 섞일 수 있습니다."
   };
+}
+
+function getLuaRuntimePath(): string | null {
+  const configuredPath = process.env.LUA_RUNTIME_PATH ? resolve(process.env.LUA_RUNTIME_PATH) : null;
+  return configuredPath && existsSync(configuredPath) ? configuredPath : null;
+}
+
+function getPortrayalMode(): "fallback" | "mvp-symbol" | "lua" {
+  if (getLuaRuntimePath()) return "lua";
+  return getPortrayalCatalogueRoot() ? "mvp-symbol" : "fallback";
+}
+
+function getPortrayalRuleFiles(): string[] {
+  const catalogueRoot = getPortrayalCatalogueRoot();
+  if (portrayalRuleCache?.catalogueRoot === catalogueRoot) {
+    return portrayalRuleCache.files;
+  }
+
+  const rulesRoot = catalogueRoot ? join(catalogueRoot, "Rules") : null;
+  const files =
+    rulesRoot && existsSync(rulesRoot)
+      ? readdirSync(rulesRoot)
+          .filter((fileName) => fileName.toLowerCase().endsWith(".lua"))
+          .sort((left, right) => left.localeCompare(right))
+      : [];
+  portrayalRuleCache = { catalogueRoot, files };
+  return files;
 }
 
 async function checkDatabaseHealth(): Promise<"ok" | "error"> {
@@ -777,4 +1027,586 @@ async function checkProjectionHealth(): Promise<"ok" | "error"> {
   } catch {
     return "error";
   }
+}
+
+type ApiFeature = {
+  type: "Feature";
+  id: string;
+  geometry: unknown;
+  properties: Record<string, unknown>;
+};
+
+type LuaInstructionPayload = {
+  rawInstructions: string[];
+  trace: string[];
+};
+
+async function createLuaDrawingInstructions(features: ApiFeature[]): Promise<Map<string, LuaInstructionPayload>> {
+  const luaRuntimePath = getLuaRuntimePath();
+  const catalogueRoot = getPortrayalCatalogueRoot();
+  if (!luaRuntimePath || !catalogueRoot || features.length === 0) {
+    return new Map();
+  }
+
+  try {
+    const runtime = new ExternalLuaPortrayalRuntime({
+      luaRuntimePath,
+      catalogueRoot,
+      timeoutMs: Number(process.env.LUA_TIMEOUT_MS ?? 20_000)
+    });
+    const results = await runtime.executeBatch(
+      features.map((feature) => ({
+        featureInstanceId: feature.id,
+        featureTypeCode: Number(feature.properties.featureTypeCode ?? 0),
+        featureCode: resolveFeatureName(feature.properties),
+        geometryType: geometryTypeName(feature.geometry),
+        geometry: feature.geometry,
+        attributes: createLuaAttributeMap(feature.properties)
+      })),
+      {
+        catalogueSnapshotId: "S-101-2.0.0",
+        scaleDenominator: null,
+        displayMode: "day",
+        viewingGroups: []
+      }
+    );
+    return new Map(
+      results.map((result) => [
+        result.featureReference,
+        { rawInstructions: result.rawInstructions, trace: result.trace }
+      ])
+    );
+  } catch (error) {
+    console.warn("S-101 Lua portrayal runtime failed; using fallback DrawingInstruction.", error);
+    return new Map();
+  }
+}
+
+function createFeaturePortrayalProperties(properties: Record<string, unknown>, luaPayload: LuaInstructionPayload | null): Record<string, unknown> {
+  const rawInstructions = luaPayload?.rawInstructions ?? createFallbackDrawingInstructionText(properties);
+  const drawingInstructions: PortrayalDrawingInstruction[] = parseDrawingInstructionText(rawInstructions).map((instruction) => ({
+    raw: instruction.raw,
+    tokens: instruction.tokens,
+    instructionType: instruction.instructionType,
+    viewingGroup: instruction.viewingGroup,
+    drawingPriority: instruction.priority,
+    displayPlane: instruction.displayPlane,
+    symbolRef: instruction.symbolRef,
+    lineStyleRef: instruction.lineStyleRef,
+    areaFillRef: instruction.areaFillRef,
+    colorFill: instruction.colorFill,
+    text: instruction.text
+  }));
+
+  return {
+    portrayalRuleName: resolveFeatureName(properties) || null,
+    portrayalInstructionSource: luaPayload ? "lua" : "mvp-fallback",
+    portrayalLuaTrace: luaPayload?.trace ?? [],
+    portrayalDrawingInstructionText: rawInstructions,
+    portrayalDrawingInstructions: drawingInstructions,
+    portrayalSymbolRef: resolvePointSymbolRef(drawingInstructions),
+    portrayalLineStyleRef: resolveLineStyleRef(drawingInstructions),
+    portrayalLineColor: resolveLineColor(drawingInstructions),
+    portrayalAreaFillRef: resolveAreaFillRef(drawingInstructions),
+    portrayalColorFill: resolveColorFill(drawingInstructions),
+    portrayalDisplayClass: resolveDisplayClass(properties),
+    portrayalMinStage: resolveMvpMinStage(properties)
+  };
+}
+
+function createLuaAttributeMap(properties: Record<string, unknown>): Record<string, unknown> {
+  const attributes: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(properties)) {
+    if (key.startsWith("portrayal_")) continue;
+    attributes[key] = value;
+  }
+
+  if (Array.isArray(properties.attributes)) {
+    const attributeRecords = properties.attributes
+      .filter((attribute): attribute is Record<string, unknown> => !!attribute && typeof attribute === "object")
+      .map((record) => ({
+        record,
+        name: String(record.name ?? attributeNameByCode(Number(record.natc)) ?? ""),
+        valueType: String(record.valueType ?? ""),
+        atix: Number(record.atix ?? 0),
+        paix: Number(record.paix ?? 0)
+      }));
+    const parentAtix = new Set(attributeRecords.filter((item) => item.paix > 0).map((item) => item.paix));
+    const nodesByAtix = new Map<number, Record<string, unknown>>();
+    const roots: Record<string, Array<Record<string, unknown>>> = {};
+    const addValue = (target: Record<string, unknown>, name: string, value: unknown) => {
+      if (!name || value === null || value === undefined) return;
+      if (target[name] === undefined) {
+        target[name] = value;
+      } else if (Array.isArray(target[name])) {
+        (target[name] as unknown[]).push(value);
+      } else {
+        target[name] = [target[name], value];
+      }
+    };
+
+    for (const item of attributeRecords) {
+      if (!item.name || item.atix <= 0) continue;
+      if (!parentAtix.has(item.atix) && item.valueType.toLowerCase() !== "complex") continue;
+      nodesByAtix.set(item.atix, { simpleAttributes: {}, complexAttributes: {} });
+    }
+
+    for (const item of attributeRecords) {
+      if (!item.name) continue;
+      const value =
+        item.record.valueInteger ??
+        item.record.valueNumeric ??
+        item.record.valueText ??
+        item.record.valueDate ??
+        item.record.rawValue;
+      const parent = item.paix > 0 ? nodesByAtix.get(item.paix) : null;
+      if (parent) {
+        addValue(parent.simpleAttributes as Record<string, unknown>, item.name, value);
+        continue;
+      }
+      if (item.atix > 0 && nodesByAtix.has(item.atix)) {
+        if (!roots[item.name]) roots[item.name] = [];
+        roots[item.name].push(nodesByAtix.get(item.atix) as Record<string, unknown>);
+        continue;
+      }
+      addValue(attributes, item.name, value);
+    }
+
+    if (Object.keys(roots).length > 0) {
+      attributes.__complexAttributes = roots;
+    }
+  }
+  return attributes;
+}
+
+function attributeNameByCode(code: number): string | null {
+  const catalogueName = getAttributeNameByCode().get(code);
+  if (catalogueName) return catalogueName;
+
+  const fallbackNames: Record<number, string> = {
+    2: "beaconShape",
+    6: "buoyShape",
+    14: "categoryOfCardinalMark",
+    36: "categoryOfLight",
+    75: "colour",
+    107: "featureName",
+    110: "fixedDateRange",
+    140: "periodicDateRange",
+    151: "restriction",
+    174: "valueOfDepthContour",
+    179: "verticalLength"
+  };
+  return fallbackNames[code] ?? null;
+}
+
+function geometryTypeName(geometry: unknown): string | null {
+  if (!geometry || typeof geometry !== "object") return null;
+  const type = (geometry as Record<string, unknown>).type;
+  return typeof type === "string" ? type : null;
+}
+
+function createFallbackDrawingInstructionText(properties: Record<string, unknown>): string[] {
+  const featureName = resolveFeatureName(properties);
+  const symbolRef = resolveMvpSymbolRef(properties);
+  const viewingGroup = resolveMvpViewingGroup(featureName);
+  const drawingPriority = resolveMvpDrawingPriority(featureName);
+  const displayPlane = resolveMvpDisplayPlane(featureName);
+  const prefix = `ViewingGroup:${viewingGroup};DrawingPriority:${drawingPriority};DisplayPlane:${displayPlane}`;
+
+  if (symbolRef) {
+    return [`${prefix};PointInstruction:${symbolRef}`];
+  }
+  if (["DepthArea", "DredgedArea"].includes(featureName)) {
+    return [`${prefix};ColorFill:DEPVS`];
+  }
+  if (["LandArea", "BuiltUpArea", "DockArea", "DryDock", "FloatingDock", "ShorelineConstruction", "Causeway"].includes(featureName)) {
+    return [`${prefix};ColorFill:UIAFF`];
+  }
+  if (["DepthContour", "Coastline", "ShorelineConstruction"].includes(featureName)) {
+    return [`${prefix};LineInstruction:_simple_`];
+  }
+  return [`${prefix};NullInstruction`];
+}
+
+function resolvePointSymbolRef(instructions: PortrayalDrawingInstruction[]): string | null {
+  return instructions.find((instruction) => instruction.instructionType === "point" && instruction.symbolRef)?.symbolRef ?? null;
+}
+
+function resolveLineStyleRef(instructions: PortrayalDrawingInstruction[]): string | null {
+  return instructions.find((instruction) => instruction.instructionType === "line" && instruction.lineStyleRef)?.lineStyleRef ?? null;
+}
+
+function resolveLineColor(instructions: PortrayalDrawingInstruction[]): string | null {
+  for (const instruction of [...instructions].reverse()) {
+    const lineStyle = instruction.tokens.LineStyle;
+    if (typeof lineStyle !== "string") continue;
+    const parts = lineStyle.split(",").map((part) => part.trim());
+    for (let index = parts.length - 1; index >= 0; index -= 1) {
+      const color = parts[index];
+      if (/^CH[A-Z0-9]{3}$|^DEP[A-Z0-9]{2}$|^RES[A-Z0-9]{2}$/.test(color)) return color;
+    }
+  }
+  return null;
+}
+
+function resolveAreaFillRef(instructions: PortrayalDrawingInstruction[]): string | null {
+  return [...instructions].reverse().find((instruction) => instruction.instructionType === "area" && instruction.areaFillRef)?.areaFillRef ?? null;
+}
+
+function resolveColorFill(instructions: PortrayalDrawingInstruction[]): string | null {
+  return [...instructions].reverse().find((instruction) => instruction.instructionType === "area" && instruction.colorFill)?.colorFill ?? null;
+}
+
+function resolveMvpViewingGroup(featureName: string): number {
+  if (["DepthArea", "DredgedArea"].includes(featureName)) return 13030;
+  if (["Wreck", "Obstruction", "UnderwaterAwashRock"].includes(featureName)) return 34050;
+  if (["LightAllAround", "LightSectored"].includes(featureName)) return 27010;
+  if (featureName.includes("Buoy") || featureName.includes("Beacon")) return 27020;
+  return 21010;
+}
+
+function resolveMvpDrawingPriority(featureName: string): number {
+  if (["DepthArea", "DredgedArea"].includes(featureName)) return 3;
+  if (["Wreck", "Obstruction", "UnderwaterAwashRock"].includes(featureName)) return 12;
+  if (featureName.includes("Buoy") || featureName.includes("Beacon") || featureName.includes("Light")) return 18;
+  return 9;
+}
+
+function resolveMvpDisplayPlane(featureName: string): "UnderRadar" | "OverRadar" {
+  if (featureName.includes("Buoy") || featureName.includes("Beacon") || featureName.includes("Light")) return "OverRadar";
+  return "UnderRadar";
+}
+
+function resolveMvpSymbolRef(properties: Record<string, unknown>): string | null {
+  const featureName = resolveFeatureName(properties);
+  const colour = propertyNumber(properties, ["portrayal_colour_1", "colour"], 75);
+  const buoyShape = propertyNumber(properties, ["portrayal_buoy_shape", "buoyShape"], 6);
+  const beaconShape = propertyNumber(properties, ["portrayal_beacon_shape", "beaconShape"], 2);
+  const category = propertyNumber(properties, ["portrayal_cardinal_category", "categoryOfCardinalMark"], 14);
+  const lightCategory = propertyNumber(properties, ["portrayal_light_category", "categoryOfLight"], 36);
+
+  if (featureName === "CardinalBuoy" || featureName === "BuoyCardinal") return cardinalSymbol("BOYCAR", category, "BOYDEF03");
+  if (featureName === "LateralBuoy" || featureName === "BuoyLateral") {
+    if (colour === 3) return buoyShape === 1 ? "BOYLAT14" : "BOYLAT24";
+    if (colour === 4) return buoyShape === 1 ? "BOYLAT13" : "BOYLAT23";
+    return "BOYDEF03";
+  }
+  if (featureName === "SafeWaterBuoy" || featureName === "BuoySafeWater") return "BOYSAW12";
+  if (featureName === "SpecialPurposeGeneralBuoy" || featureName === "BuoySpecialPurposeGeneral") return "BOYSPP15";
+  if (featureName === "CardinalBeacon" || featureName === "BeaconCardinal") return cardinalSymbol("BCNCAR", category, "BCNDEF13");
+  if (featureName === "LateralBeacon" || featureName === "BeaconLateral") {
+    if (colour === 3) return [3, 5].includes(beaconShape) ? "BCNLAT15" : "BCNLAT21";
+    if (colour === 4) return [3, 5].includes(beaconShape) ? "BCNLAT16" : "BCNLAT22";
+    return "BCNDEF13";
+  }
+  if (featureName === "SafeWaterBeacon" || featureName === "BeaconSafeWater") return "BCNSAW21";
+  if (featureName === "SpecialPurposeGeneralBeacon" || featureName === "BeaconSpecialPurposeGeneral") return "BCNSPP13";
+  if (featureName === "LightAllAround" || featureName === "LightSectored") {
+    if ([8, 11].includes(lightCategory)) return "LIGHTS82";
+    if (lightCategory === 9) return "LIGHTS81";
+    if (colour === 3) return "LIGHTS11";
+    if (colour === 4) return "LIGHTS12";
+    return "LIGHTS13";
+  }
+  if (featureName === "Wreck") return "WRECKS01";
+  if (featureName === "Obstruction") return "OBSTRN01";
+  if (featureName === "UnderwaterAwashRock") return "UWTROC03";
+  return null;
+}
+
+function getPortrayalCatalogueRoot(): string | null {
+  const configuredPath = process.env.PORTRAYAL_CATALOGUE_PATH ? resolve(process.env.PORTRAYAL_CATALOGUE_PATH) : null;
+  if (configuredPath && existsSync(configuredPath)) return configuredPath;
+  if (existsSync(defaultPortrayalCataloguePath)) return defaultPortrayalCataloguePath;
+  return null;
+}
+
+function getFeatureCataloguePath(): string | null {
+  const configuredPath = process.env.FEATURE_CATALOGUE_PATH ? resolve(process.env.FEATURE_CATALOGUE_PATH) : null;
+  if (configuredPath && existsSync(configuredPath)) return configuredPath;
+  if (existsSync(defaultFeatureCataloguePath)) return defaultFeatureCataloguePath;
+  return null;
+}
+
+function getFeatureCatalogueSnapshotId(): string | null {
+  const featurePath = getFeatureCataloguePath();
+  return featurePath ? `fc-${createHash("sha256").update(featurePath).digest("hex").slice(0, 12)}` : null;
+}
+
+function getFeatureNameByCode(): Map<number, string> {
+  const cataloguePath = getFeatureCataloguePath();
+  if (featureNameByCodeCache?.cataloguePath === cataloguePath) {
+    return featureNameByCodeCache.names;
+  }
+
+  const names = new Map<number, string>();
+  if (cataloguePath) {
+    const xml = readFileSync(cataloguePath, "utf8");
+    const sectionMatch = xml.match(/<S100FC:S100_FC_FeatureTypes\b[^>]*>([\s\S]*?)<\/S100FC:S100_FC_FeatureTypes>/);
+    const section = sectionMatch?.[1] ?? "";
+    const featurePattern = /<S100FC:S100_FC_FeatureType\b[^>]*>([\s\S]*?)<\/S100FC:S100_FC_FeatureType>/g;
+    let match: RegExpExecArray | null;
+    let sequence = 0;
+    while ((match = featurePattern.exec(section)) !== null) {
+      sequence += 1;
+      const codeMatch = match[1].match(/<S100FC:code>([^<]+)<\/S100FC:code>/);
+      const code = codeMatch?.[1]?.trim();
+      if (code) names.set(sequence, code);
+    }
+  }
+  featureNameByCodeCache = { cataloguePath, names };
+  return names;
+}
+
+function getAttributeNameByCode(): Map<number, string> {
+  const cataloguePath = getFeatureCataloguePath();
+  if (attributeNameByCodeCache?.cataloguePath === cataloguePath) {
+    return attributeNameByCodeCache.names;
+  }
+
+  const names = new Map<number, string>();
+  if (cataloguePath) {
+    const xml = readFileSync(cataloguePath, "utf8");
+    let sequence = 0;
+    sequence = addCatalogueAttributeNames(xml, "S100_FC_SimpleAttributes", "S100_FC_SimpleAttribute", names, sequence);
+    addCatalogueAttributeNames(xml, "S100_FC_ComplexAttributes", "S100_FC_ComplexAttribute", names, sequence);
+  }
+  attributeNameByCodeCache = { cataloguePath, names };
+  return names;
+}
+
+function addCatalogueAttributeNames(
+  xml: string,
+  sectionName: string,
+  itemName: string,
+  names: Map<number, string>,
+  startSequence: number
+): number {
+  const sectionMatch = xml.match(new RegExp(`<S100FC:${sectionName}\\b[^>]*>([\\s\\S]*?)<\\/S100FC:${sectionName}>`));
+  const section = sectionMatch?.[1] ?? "";
+  const attributePattern = new RegExp(`<S100FC:${itemName}\\b[^>]*>([\\s\\S]*?)<\\/S100FC:${itemName}>`, "g");
+  let match: RegExpExecArray | null;
+  let sequence = startSequence;
+  while ((match = attributePattern.exec(section)) !== null) {
+    sequence += 1;
+    const codeMatch = match[1].match(/<S100FC:code>([^<]+)<\/S100FC:code>/);
+    const code = codeMatch?.[1]?.trim();
+    if (code) names.set(sequence, code);
+  }
+  return sequence;
+}
+
+function findCatalogueSymbolPath(symbolRef: string): string | null {
+  const catalogueRoot = getPortrayalCatalogueRoot();
+  if (!catalogueRoot) return null;
+  const candidates = [
+    join(catalogueRoot, "Symbols", `${symbolRef}.svg`),
+    join(catalogueRoot, "symbols", `${symbolRef}.svg`),
+    join(catalogueRoot, `${symbolRef}.svg`)
+  ];
+  return candidates.find((candidate) => existsSync(candidate)) ?? null;
+}
+
+function getPortrayalSymbolItems(): PortrayalSymbolCatalogItem[] {
+  const catalogueRoot = getPortrayalCatalogueRoot();
+  if (portrayalSymbolCache?.catalogueRoot === catalogueRoot) {
+    return portrayalSymbolCache.items;
+  }
+
+  const items = catalogueRoot ? readCatalogueSymbolItems(catalogueRoot) : [];
+  portrayalSymbolCache = {
+    catalogueRoot,
+    items:
+      items.length > 0
+        ? items
+        : fallbackPortrayalSymbols.map((symbolRef) => ({
+            symbolRef,
+            description: getSymbolDescription(symbolRef),
+            endpoint: `/api/portrayal/symbols/${symbolRef}.svg`,
+            fileName: `${symbolRef}.svg`
+          }))
+  };
+  return portrayalSymbolCache.items;
+}
+
+function readCatalogueSymbolItems(catalogueRoot: string): PortrayalSymbolCatalogItem[] {
+  const symbolsRoot = join(catalogueRoot, "Symbols");
+  if (!existsSync(symbolsRoot)) return [];
+
+  const descriptions = readPortrayalCatalogueSymbolDescriptions(catalogueRoot);
+  return readdirSync(symbolsRoot)
+    .filter((fileName) => fileName.toLowerCase().endsWith(".svg"))
+    .map((fileName) => {
+      const symbolRef = fileName.replace(/\.svg$/i, "").toUpperCase();
+      return {
+        symbolRef,
+        description: descriptions.get(symbolRef) ?? getSymbolDescription(symbolRef),
+        endpoint: `/api/portrayal/symbols/${symbolRef}.svg`,
+        fileName
+      };
+    })
+    .sort((left, right) => left.symbolRef.localeCompare(right.symbolRef));
+}
+
+function readPortrayalCatalogueSymbolDescriptions(catalogueRoot: string): Map<string, string> {
+  const cataloguePath = join(catalogueRoot, "portrayal_catalogue.xml");
+  const descriptions = new Map<string, string>();
+  if (!existsSync(cataloguePath)) return descriptions;
+
+  const xml = readFileSync(cataloguePath, "utf8");
+  const symbolPattern = /<symbol\s+id="([^"]+)"[^>]*>([\s\S]*?)<\/symbol>/g;
+  let match: RegExpExecArray | null;
+  while ((match = symbolPattern.exec(xml)) !== null) {
+    const symbolRef = match[1].toUpperCase();
+    const body = match[2];
+    const descriptionMatch = body.match(/<description>\s*<name>[\s\S]*?<\/name>\s*<description>([\s\S]*?)<\/description>/);
+    descriptions.set(symbolRef, decodeXmlText(descriptionMatch?.[1] ?? symbolRef));
+  }
+  return descriptions;
+}
+
+function inlineSvgStyle(svgText: string, mode: "day" | "dusk" | "night"): string {
+  const catalogueRoot = getPortrayalCatalogueRoot();
+  const stylePath = catalogueRoot ? join(catalogueRoot, "Symbols", `${mode}SvgStyle.css`) : null;
+  const styleText = stylePath && existsSync(stylePath) ? readFileSync(stylePath, "utf8") : "";
+  if (!styleText) return svgText;
+
+  const withoutStylesheet = svgText.replace(/<\?xml-stylesheet[\s\S]*?\?>\s*/i, "");
+  const styleElement = `<style type="text/css"><![CDATA[\n${styleText}\n]]></style>`;
+  return withoutStylesheet.replace(/(<svg\b[^>]*>)/i, `$1\n  ${styleElement}`);
+}
+
+function decodeXmlText(value: string): string {
+  return value
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&")
+    .trim();
+}
+
+function resolveDisplayClass(properties: Record<string, unknown>): string {
+  const featureName = resolveFeatureName(properties);
+  if (["DepthArea", "DredgedArea"].includes(featureName)) return "depth-area";
+  if (["LandArea", "BuiltUpArea", "DockArea", "DryDock", "FloatingDock", "ShorelineConstruction", "Causeway"].includes(featureName)) {
+    return "land-area";
+  }
+  if (["DepthContour", "Coastline", "ShorelineConstruction"].includes(featureName)) return "linework";
+  return "default";
+}
+
+function resolveMvpMinStage(properties: Record<string, unknown>): number {
+  const featureName = resolveFeatureName(properties);
+  if (["DepthArea", "DredgedArea", "LandArea", "Coastline"].includes(featureName)) return 0;
+  if (["DepthContour"].includes(featureName)) return 1;
+  if (["CardinalBuoy", "LateralBuoy", "SafeWaterBuoy", "SpecialPurposeGeneralBuoy", "BuoyCardinal", "BuoyLateral", "BuoySafeWater", "BuoySpecialPurposeGeneral"].includes(featureName)) return 3;
+  if (["CardinalBeacon", "LateralBeacon", "SafeWaterBeacon", "SpecialPurposeGeneralBeacon", "BeaconCardinal", "BeaconLateral", "BeaconSafeWater", "BeaconSpecialPurposeGeneral"].includes(featureName)) return 3;
+  if (["LightAllAround", "LightSectored"].includes(featureName)) return 4;
+  if (["Wreck", "Obstruction", "UnderwaterAwashRock"].includes(featureName)) return 2;
+  return 0;
+}
+
+function resolveFeatureName(properties: Record<string, unknown>): string {
+  const explicitName = String(properties.feature_name ?? properties.featureName ?? properties.name ?? "");
+  if (explicitName) return explicitName.replace(/\s+/g, "");
+
+  const featureTypeCode = Number(properties.featureTypeCode ?? properties.feature_type_code ?? 0);
+  const featureNamesByCode: Record<number, string> = {
+    75: "DredgedArea",
+    78: "DepthArea",
+    86: "UnderwaterAwashRock",
+    87: "Wreck",
+    88: "Obstruction",
+    154: "LightAllAround",
+    155: "LightSectored",
+    158: "LateralBuoy",
+    159: "CardinalBuoy",
+    161: "SafeWaterBuoy",
+    162: "SpecialPurposeGeneralBuoy",
+    166: "LateralBeacon",
+    167: "CardinalBeacon",
+    169: "SafeWaterBeacon",
+    170: "SpecialPurposeGeneralBeacon"
+  };
+  if (featureNamesByCode[featureTypeCode]) return featureNamesByCode[featureTypeCode];
+
+  const catalogueName = getFeatureNameByCode().get(featureTypeCode);
+  if (catalogueName) return catalogueName;
+
+  return "";
+}
+
+function propertyNumber(properties: Record<string, unknown>, names: string[], attributeCode: number): number {
+  for (const name of names) {
+    const value = Number(properties[name]);
+    if (Number.isFinite(value) && value !== 0) return value;
+  }
+
+  if (!Array.isArray(properties.attributes)) return 0;
+  for (const attribute of properties.attributes) {
+    if (!attribute || typeof attribute !== "object") continue;
+    const record = attribute as Record<string, unknown>;
+    if (Number(record.natc) !== attributeCode) continue;
+    const value = Number(record.valueInteger ?? record.valueNumeric ?? record.valueText ?? record.rawValue ?? 0);
+    return Number.isFinite(value) ? value : 0;
+  }
+  return 0;
+}
+
+function cardinalSymbol(prefix: "BOYCAR" | "BCNCAR", category: number, fallback: string): string {
+  if (category >= 1 && category <= 4) return `${prefix}0${category}`;
+  return fallback;
+}
+
+function getSymbolDescription(symbolRef: string): string {
+  if (symbolRef.startsWith("BOY")) return "遺??怨꾩뿴 MVP Portrayal symbol";
+  if (symbolRef.startsWith("BCN")) return "?낇몴 怨꾩뿴 MVP Portrayal symbol";
+  if (symbolRef.startsWith("LIGHTS")) return "?깊솕 怨꾩뿴 MVP Portrayal symbol";
+  if (symbolRef.startsWith("WRECKS")) return "移⑥꽑 MVP Portrayal symbol";
+  if (symbolRef.startsWith("OBSTRN")) return "?μ븷臾?MVP Portrayal symbol";
+  if (symbolRef.startsWith("DEPARE")) return "?섏떖 援ъ뿭 MVP Portrayal symbol";
+  return "S-101 MVP Portrayal symbol";
+}
+
+function createFallbackSymbolSvg(symbolRef: string): string {
+  const palette = s101PaletteDay;
+  const color = symbolColor(symbolRef);
+  const stroke = palette.CHBLK;
+  const label = symbolRef.replace(/\d+$/, "");
+  if (symbolRef.startsWith("LIGHTS")) {
+    return svg(`<circle cx="16" cy="16" r="8" fill="${palette.CHYLW}" stroke="${stroke}" stroke-width="2"/><path d="M16 2v6M16 24v6M2 16h6M24 16h6M6 6l4 4M22 22l4 4M26 6l-4 4M10 22l-4 4" stroke="${color}" stroke-width="2" stroke-linecap="round"/>`);
+  }
+  if (symbolRef.startsWith("BCN")) {
+    return svg(`<path d="M16 3l8 12H8z" fill="${color}" stroke="${stroke}" stroke-width="2"/><path d="M16 15v14" stroke="${stroke}" stroke-width="3"/><path d="M9 29h14" stroke="${stroke}" stroke-width="3"/>`);
+  }
+  if (symbolRef.startsWith("BOY")) {
+    return svg(`<path d="M16 4l9 9-9 9-9-9z" fill="${color}" stroke="${stroke}" stroke-width="2"/><path d="M16 22v7" stroke="${stroke}" stroke-width="3"/><path d="M10 29h12" stroke="${stroke}" stroke-width="3"/>`);
+  }
+  if (symbolRef.startsWith("WRECKS")) {
+    return svg(`<path d="M6 10h20l-4 13H10z" fill="none" stroke="${stroke}" stroke-width="2"/><path d="M8 24l16-16M24 24L8 8" stroke="${palette.DNGHL}" stroke-width="2"/>`);
+  }
+  if (symbolRef.startsWith("OBSTRN") || symbolRef.startsWith("DANGER")) {
+    return svg(`<path d="M16 3l13 24H3z" fill="${palette.DNGHL}" fill-opacity=".25" stroke="${palette.DNGHL}" stroke-width="2"/><text x="16" y="23" text-anchor="middle" font-family="Arial" font-size="18" font-weight="700" fill="${stroke}">!</text>`);
+  }
+  if (symbolRef.startsWith("DEPARE")) {
+    return svg(`<rect x="4" y="6" width="24" height="20" rx="2" fill="${palette.DEPIT}" stroke="${stroke}" stroke-width="2"/><text x="16" y="20" text-anchor="middle" font-family="Arial" font-size="8" font-weight="700" fill="${stroke}">DEP</text>`);
+  }
+  return svg(`<circle cx="16" cy="16" r="11" fill="${color}" stroke="${stroke}" stroke-width="2"/><text x="16" y="19" text-anchor="middle" font-family="Arial" font-size="6" font-weight="700" fill="${stroke}">${label.slice(0, 3)}</text>`);
+}
+
+function symbolColor(symbolRef: string): string {
+  if (symbolRef.includes("LAT13") || symbolRef.includes("LAT23") || symbolRef.includes("LIGHTS12")) return s101PaletteDay.CHRED;
+  if (symbolRef.includes("LAT14") || symbolRef.includes("LAT24") || symbolRef.includes("LIGHTS11")) return s101PaletteDay.CHGRN;
+  if (symbolRef.includes("CAR")) return s101PaletteDay.CHYLW;
+  if (symbolRef.includes("SAW")) return s101PaletteDay.CHRED;
+  if (symbolRef.includes("SPP")) return s101PaletteDay.CHMGD;
+  return s101PaletteDay.TRFCD;
+}
+
+function svg(content: string): string {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" role="img">
+  ${content}
+</svg>`;
 }

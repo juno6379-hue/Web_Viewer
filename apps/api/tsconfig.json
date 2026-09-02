@@ -6,5 +6,5 @@
     "moduleResolution": "NodeNext",
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "../../packages/shared/src/**/*.ts"]
+  "include": ["src/**/*.ts", "../../packages/shared/src/**/*.ts", "../../packages/portrayal/src/**/*.ts"]
 }

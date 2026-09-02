@@ -1,5 +1,21 @@
 # Web_Viewer
 
+## 2026-08-31 Portrayal Symbol MVP 반영
+
+지도는 이제 단순 Point/Line/Surface fallback만 사용하지 않고, 1차 Portrayal symbol 흐름을 사용합니다.
+
+| 항목 | 상태 |
+| --- | --- |
+| Palette API | `GET /api/portrayal/palette/day` |
+| Symbol manifest | `GET /api/portrayal/symbols` |
+| Symbol SVG | `GET /api/portrayal/symbols/{symbolRef}.svg` |
+| MapLibre layer | `s101-symbol`에서 `icon-image` 사용 |
+| 지원 범위 | BOYLAT, BOYCAR, BCN, LIGHTS, WRECKS, OBSTRN, DEPARE |
+| SCAMIN | 0~6 단계별 `portrayalMinStage` filter 적용 |
+| Lua runtime | 아직 미연결, 다음 단계에서 `DrawingInstruction` 생성으로 연결 |
+
+세부 구현 내용은 `docs/portrayal-symbol-mvp.md`를 기준으로 관리합니다.
+
 S-101 V2.0 Web Viewer는 `S100_Parser`가 생성한 `s100_dev` PostgreSQL/PostGIS DB를 사용하는 웹 기반 S-101 조회기입니다.
 
 이 저장소의 모든 주석과 관련 문서는 한글 작성을 원칙으로 합니다. 외부 라이브러리명, API 경로, DB 테이블명, 코드 식별자는 원문을 유지합니다.
@@ -355,5 +371,6 @@ http://localhost:3000/api/datasets
 - `docs/db-api-contract.md`: DB/API 계약
 - `docs/catalogue-integration.md`: Feature Catalogue와 Portrayal Catalogue 연동
 - `docs/portrayal-engine-plan.md`: S-100 Part 9a 기반 Portrayal Engine 단계별 계획
+- `docs/s101-lua-portrayal-runtime.md`: Lua Host API, catalogue lookup, MapLibre drawing instruction 연동 현황
 - `docs/qa-validation-plan.md`: QA 및 검증 계획
 - `docs/readonly-db-account.md`: Viewer 조회 전용 DB 계정 설정
