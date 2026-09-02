@@ -211,17 +211,22 @@ export function App() {
       return;
     }
     setMessage(`${selectedDataset.dsnm} 조회 중`);
-    Promise.all([fetchFeatures(selectedDataset), fetchQaSummary(selectedDataset)])
-      .then(([featureResult, qaResult]) => {
+    fetchFeatures(selectedDataset)
+      .then((featureResult) => {
         setFeatures(featureResult);
-        setQa(qaResult);
         setDetail(null);
         setSelectedFeature(emptyCollection);
         setDataCoverage(createDataCoverage(selectedDataset));
         setSearchResults([]);
         setMessage(`${selectedDataset.dsnm} feature ${featureResult.features.length}건`);
       })
-      .catch((error: Error) => setMessage(`조회 실패: ${error.message}`));
+      .catch((error: Error) => setMessage(`feature 조회 실패: ${error.message}`));
+    fetchQaSummary(selectedDataset)
+      .then(setQa)
+      .catch((error: Error) => {
+        setQa(null);
+        setMessage(`${selectedDataset.dsnm} feature 조회 중 / QA 조회 실패: ${error.message}`);
+      });
   }, [selectedDataset]);
 
   useEffect(() => {
