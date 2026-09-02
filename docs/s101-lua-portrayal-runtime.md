@@ -47,6 +47,11 @@ paletteReady=true
 - point, multipoint, curve, and surface spatial associations;
 - real GeoJSON coordinates instead of dummy `0,0` geometry;
 - 3D point Z values when projection GeoJSON contains them;
+- Feature Catalogue permitted primitives passed to the Lua Host API, so a `MultiPoint`
+  projection can be normalized to `Point` when the S-101 feature type permits point
+  portrayal;
+- chunked Lua execution for large cells to avoid LuaJIT constant limits when a full
+  cell contains thousands of features;
 - per-feature Lua trace output instead of copying a global batch trace to every feature.
 
 ## Catalogue Lookup
@@ -70,6 +75,12 @@ Feature Catalogue attribute code lookup treats simple attributes first and compl
 - line and area instructions through existing line/fill layer properties.
 
 Sounding rendering depends on `Sounding` feature MultiPoint Z values. If the DB projection contains 2D points only, the Lua `Sounding` rule emits fallback question-mark symbols instead of numeric sounding symbols.
+
+For the first 10 loaded cells verified on 2026-09-02, the API returns `portrayalSource=lua`
+without full-batch fallback. Remaining question-mark symbols are produced by S-101 Lua
+rules when the imported DB geometry does not match the Feature Catalogue primitive, for
+example `Rapids`, `River`, `Runway`, `SpanOpening`, `Road`, and `Tunnel` records imported
+as `MultiPoint` even though the catalogue permits `curve` and/or `surface`.
 
 ## DB Reload Requirement
 

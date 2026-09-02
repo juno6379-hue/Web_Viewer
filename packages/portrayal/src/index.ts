@@ -4,6 +4,7 @@ export interface PortrayalFeature {
   featureInstanceId: string;
   featureTypeCode: number;
   featureCode?: string | null;
+  featurePrimitive?: string | null;
   attributes: Record<string, unknown>;
   geometryType: string | null;
   geometry?: unknown;

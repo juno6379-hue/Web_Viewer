@@ -104,6 +104,7 @@ type PortrayalSymbolCatalogItem = {
 let portrayalSymbolCache: { catalogueRoot: string | null; items: PortrayalSymbolCatalogItem[] } | null = null;
 let portrayalRuleCache: { catalogueRoot: string | null; files: string[] } | null = null;
 let featureNameByCodeCache: { cataloguePath: string | null; names: Map<number, string> } | null = null;
+let featurePrimitiveByCodeCache: { cataloguePath: string | null; primitives: Map<number, string> } | null = null;
 let attributeNameByCodeCache: { cataloguePath: string | null; names: Map<number, string> } | null = null;
 
 const numberText = z.string().trim().regex(/^\d+$/).transform((value) => Number(value));
@@ -325,11 +326,13 @@ export function registerRoutes(app: FastifyInstance) {
       values
     );
 
+    const featurePrimitiveByCode = getFeaturePrimitiveByCode();
     const baseFeatures = result.rows.map((row) => {
       const featureName = resolveFeatureName({ featureTypeCode: row.feature_type_code });
       const properties = {
         ...(row.properties ?? {}),
         featureName,
+        featurePrimitive: featurePrimitiveByCode.get(Number(row.feature_type_code)) ?? null,
         featureInstanceId: row.feature_instance_id,
         featureTypeCode: row.feature_type_code
       };
@@ -1054,22 +1057,29 @@ async function createLuaDrawingInstructions(features: ApiFeature[]): Promise<Map
       catalogueRoot,
       timeoutMs: Number(process.env.LUA_TIMEOUT_MS ?? 20_000)
     });
-    const results = await runtime.executeBatch(
-      features.map((feature) => ({
-        featureInstanceId: feature.id,
-        featureTypeCode: Number(feature.properties.featureTypeCode ?? 0),
-        featureCode: resolveFeatureName(feature.properties),
-        geometryType: geometryTypeName(feature.geometry),
-        geometry: feature.geometry,
-        attributes: createLuaAttributeMap(feature.properties)
-      })),
-      {
-        catalogueSnapshotId: "S-101-2.0.0",
-        scaleDenominator: null,
-        displayMode: "day",
-        viewingGroups: []
-      }
-    );
+    const luaFeatures = features.map((feature) => ({
+      featureInstanceId: feature.id,
+      featureTypeCode: Number(feature.properties.featureTypeCode ?? 0),
+      featureCode: resolveFeatureName(feature.properties),
+      featurePrimitive: getFeaturePrimitiveByCode().get(Number(feature.properties.featureTypeCode ?? 0)) ?? null,
+      geometryType: geometryTypeName(feature.geometry),
+      geometry: feature.geometry,
+      attributes: createLuaAttributeMap(feature.properties)
+    }));
+    const results = [];
+    const configuredChunkSize = Number(process.env.LUA_FEATURE_BATCH_SIZE ?? 200);
+    const chunkSize = Number.isFinite(configuredChunkSize) && configuredChunkSize > 0 ? configuredChunkSize : 200;
+    for (let index = 0; index < luaFeatures.length; index += chunkSize) {
+      const chunk = luaFeatures.slice(index, index + chunkSize);
+      results.push(
+        ...(await runtime.executeBatch(chunk, {
+          catalogueSnapshotId: "S-101-2.0.0",
+          scaleDenominator: null,
+          displayMode: "day",
+          viewingGroups: []
+        }))
+      );
+    }
     return new Map(
       results.map((result) => [
         result.featureReference,
@@ -1356,6 +1366,32 @@ function getFeatureNameByCode(): Map<number, string> {
   }
   featureNameByCodeCache = { cataloguePath, names };
   return names;
+}
+
+function getFeaturePrimitiveByCode(): Map<number, string> {
+  const cataloguePath = getFeatureCataloguePath();
+  if (featurePrimitiveByCodeCache?.cataloguePath === cataloguePath) {
+    return featurePrimitiveByCodeCache.primitives;
+  }
+
+  const primitives = new Map<number, string>();
+  if (cataloguePath) {
+    const xml = readFileSync(cataloguePath, "utf8");
+    const sectionMatch = xml.match(/<S100FC:S100_FC_FeatureTypes\b[^>]*>([\s\S]*?)<\/S100FC:S100_FC_FeatureTypes>/);
+    const section = sectionMatch?.[1] ?? "";
+    const featurePattern = /<S100FC:S100_FC_FeatureType\b[^>]*>([\s\S]*?)<\/S100FC:S100_FC_FeatureType>/g;
+    let match: RegExpExecArray | null;
+    let sequence = 0;
+    while ((match = featurePattern.exec(section)) !== null) {
+      sequence += 1;
+      const primitiveValues = [...match[1].matchAll(/<S100FC:permittedPrimitives>([^<]+)<\/S100FC:permittedPrimitives>/g)]
+        .map((primitiveMatch) => primitiveMatch[1]?.trim())
+        .filter((value): value is string => !!value);
+      if (primitiveValues.length > 0) primitives.set(sequence, primitiveValues.join(","));
+    }
+  }
+  featurePrimitiveByCodeCache = { cataloguePath, primitives };
+  return primitives;
 }
 
 function getAttributeNameByCode(): Map<number, string> {

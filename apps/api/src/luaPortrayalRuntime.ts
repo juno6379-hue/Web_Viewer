@@ -331,7 +331,7 @@ function HostGetSpatial(spatialID)
     return createPointFromCoordinate(lastCoordinate(feature.coordinates))
   end
   if feature.spatialType == "Point" then
-    return createPointFromCoordinate(feature.coordinates)
+    return createPointFromCoordinate(firstCoordinate(feature.coordinates) or feature.coordinates)
   end
   if feature.spatialType == "MultiPoint" then
     local points = {}
@@ -497,11 +497,12 @@ io.write("]")
 
 function normalizeLuaFeature(feature: PortrayalFeature): Record<string, unknown> {
   const attributes = normalizeLuaAttributes(feature.attributes);
+  const spatialType = geometryTypeToSpatialType(feature.geometryType, feature.geometry, feature.featurePrimitive);
   return {
     featureInstanceId: feature.featureInstanceId,
     featureCode: feature.featureCode,
-    spatialType: geometryTypeToSpatialType(feature.geometryType, feature.geometry),
-    coordinates: normalizeGeoJsonCoordinates(feature.geometry),
+    spatialType,
+    coordinates: normalizeGeoJsonCoordinates(feature.geometry, spatialType),
     attributes: attributes.simpleAttributes,
     complexAttributes: attributes.complexAttributes
   };
@@ -585,7 +586,17 @@ function scalarLuaAttributeValue(value: unknown): string | number | boolean | nu
   return null;
 }
 
-function geometryTypeToSpatialType(geometryType: string | null, geometry?: unknown): string {
+function geometryTypeToSpatialType(geometryType: string | null, geometry?: unknown, permittedPrimitive?: string | null): string {
+  const geometrySpatialType = geometrySpatialTypeName(geometryType, geometry);
+  const permittedSpatialTypes = permittedPrimitiveToSpatialTypes(permittedPrimitive);
+  if (permittedSpatialTypes.includes(geometrySpatialType)) return geometrySpatialType;
+  if (geometrySpatialType === "MultiPoint" && permittedSpatialTypes.includes("Point")) return "Point";
+  if (permittedSpatialTypes.length === 1) return permittedSpatialTypes[0];
+  if (geometrySpatialType !== "None") return geometrySpatialType;
+  return permittedSpatialTypes[0] ?? "None";
+}
+
+function geometrySpatialTypeName(geometryType: string | null, geometry?: unknown): string {
   if (geometryType === "Point") return "Point";
   if (geometryType === "MultiPoint") return "MultiPoint";
   if (geometryType === "LineString" || geometryType === "MultiLineString") return "Curve";
@@ -597,17 +608,47 @@ function geometryTypeToSpatialType(geometryType: string | null, geometry?: unkno
     if (children.length > 0 && children.every((child) => child.type === "Point" || child.type === "MultiPoint")) {
       return "MultiPoint";
     }
+    if (children.some((child) => child.type === "Polygon" || child.type === "MultiPolygon")) return "Surface";
+    if (children.some((child) => child.type === "LineString" || child.type === "MultiLineString")) return "Curve";
+    if (children.some((child) => child.type === "Point" || child.type === "MultiPoint")) return "MultiPoint";
   }
   return "None";
 }
 
-function normalizeGeoJsonCoordinates(geometry: unknown): unknown {
+function permittedPrimitiveToSpatialTypes(permittedPrimitive?: string | null): string[] {
+  if (!permittedPrimitive) return [];
+  const values = permittedPrimitive
+    .split(/[,\s]+/)
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+  const spatialTypes: string[] = [];
+  for (const value of values) {
+    if (value === "point" && !spatialTypes.includes("Point")) spatialTypes.push("Point");
+    if ((value === "pointset" || value === "multipoint") && !spatialTypes.includes("MultiPoint")) spatialTypes.push("MultiPoint");
+    if (value === "curve" && !spatialTypes.includes("Curve")) spatialTypes.push("Curve");
+    if (value === "surface" && !spatialTypes.includes("Surface")) spatialTypes.push("Surface");
+  }
+  return spatialTypes;
+}
+
+function normalizeGeoJsonCoordinates(geometry: unknown, spatialType: string): unknown {
   if (!geometry || typeof geometry !== "object") return [];
   const record = geometry as Record<string, unknown>;
   if (Array.isArray(record.coordinates)) return record.coordinates;
   if (record.type === "GeometryCollection" && Array.isArray(record.geometries)) {
+    const children = record.geometries as Array<Record<string, unknown>>;
+    const preferred = children.find((child) => {
+      if (spatialType === "Surface") return child.type === "Polygon" || child.type === "MultiPolygon";
+      if (spatialType === "Curve") return child.type === "LineString" || child.type === "MultiLineString";
+      if (spatialType === "MultiPoint") return child.type === "Point" || child.type === "MultiPoint";
+      if (spatialType === "Point") return child.type === "Point";
+      return false;
+    });
+    if (preferred && Array.isArray(preferred.coordinates)) {
+      return preferred.type === "Point" && spatialType === "MultiPoint" ? [preferred.coordinates] : preferred.coordinates;
+    }
     const points: unknown[] = [];
-    for (const child of record.geometries as Array<Record<string, unknown>>) {
+    for (const child of children) {
       if (child.type === "Point" && Array.isArray(child.coordinates)) {
         points.push(child.coordinates);
       } else if (child.type === "MultiPoint" && Array.isArray(child.coordinates)) {
