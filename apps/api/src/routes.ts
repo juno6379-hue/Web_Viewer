@@ -320,6 +320,11 @@ export function registerRoutes(app: FastifyInstance) {
     const result = await query<{
       feature_instance_id: string;
       feature_type_code: number;
+      raw_feature_type_code: number | null;
+      feature_type_name: string | null;
+      dataset_id: string;
+      dataset_version_id: string;
+      dsnm: string;
       properties: Record<string, unknown>;
       geometry_geojson: unknown;
     }>(
@@ -327,6 +332,11 @@ export function registerRoutes(app: FastifyInstance) {
       SELECT
         gj.feature_instance_id::text,
         gj.feature_type_code,
+        fc.raw_feature_type_code,
+        fc.feature_type_name,
+        fc.dataset_id::text,
+        fc.dataset_version_id::text,
+        dc.dsnm,
         gj.properties,
         COALESCE(z_geometry.geometry_geojson, gj.geometry_geojson) AS geometry_geojson
       FROM projection.s101_feature_geojson gj
@@ -359,13 +369,17 @@ export function registerRoutes(app: FastifyInstance) {
 
     const featurePrimitiveByCode = getFeaturePrimitiveByCode();
     const baseFeatures = result.rows.map((row) => {
-      const featureName = resolveFeatureName({ featureTypeCode: row.feature_type_code });
+      const featureName = row.feature_type_name || resolveFeatureName({ featureTypeCode: row.feature_type_code });
       const properties = {
         ...(row.properties ?? {}),
         featureName,
         featurePrimitive: featurePrimitiveByCode.get(Number(row.feature_type_code)) ?? null,
+        datasetId: row.dataset_id,
+        datasetVersionId: row.dataset_version_id,
+        dsnm: row.dsnm,
         featureInstanceId: row.feature_instance_id,
-        featureTypeCode: row.feature_type_code
+        featureTypeCode: row.feature_type_code,
+        rawFeatureTypeCode: row.raw_feature_type_code ?? row.feature_type_code
       };
       return {
         type: "Feature" as const,
