@@ -45,6 +45,16 @@ const portrayalStages = [
   { stage: 6, label: "6", zoom: 15.4, scale: "1:8,000", mode: "Detail" }
 ];
 
+const usageBandsByStage: Record<number, string[]> = {
+  0: ["A", "B"],
+  1: ["B", "C"],
+  2: ["C", "D"],
+  3: ["D", "E"],
+  4: ["E", "F"],
+  5: ["F", "G"],
+  6: ["G", "H", "I", "J", "K", "L", "M", "N", "O", "P"]
+};
+
 const layerDefinitions = [
   { id: "s101-symbol", label: "Portrayal Symbol" },
   { id: "s101-text", label: "Portrayal Text" },
@@ -85,6 +95,7 @@ export function App() {
   const selectedDatasetRef = useRef<DatasetItem | null>(null);
   const catalogueStatusRef = useRef<CatalogueRuntimeStatus | null>(null);
   const userViewportChangeRef = useRef(false);
+  const viewportRefreshTimerRef = useRef<number | null>(null);
   const [datasets, setDatasets] = useState<DatasetItem[]>([]);
   const [selectedDatasetId, setSelectedDatasetId] = useState<string>("");
   const [features, setFeatures] = useState<FeatureGeoJsonCollection>(emptyCollection);
@@ -185,24 +196,37 @@ export function App() {
           userViewportChangeRef.current = true;
         }
       };
+      const setCurrentViewportBbox = () => {
+        if (viewportRefreshTimerRef.current !== null) {
+          window.clearTimeout(viewportRefreshTimerRef.current);
+        }
+        viewportRefreshTimerRef.current = window.setTimeout(() => {
+          viewportRefreshTimerRef.current = null;
+          const bounds = map.getBounds();
+          setViewportBbox(
+            [
+              bounds.getWest().toFixed(7),
+              bounds.getSouth().toFixed(7),
+              bounds.getEast().toFixed(7),
+              bounds.getNorth().toFixed(7)
+            ].join(",")
+          );
+        }, 450);
+      };
       const refreshViewportBbox = () => {
         if (!userViewportChangeRef.current) {
           return;
         }
         userViewportChangeRef.current = false;
-        const bounds = map.getBounds();
-        setViewportBbox(
-          [
-            bounds.getWest().toFixed(7),
-            bounds.getSouth().toFixed(7),
-            bounds.getEast().toFixed(7),
-            bounds.getNorth().toFixed(7)
-          ].join(",")
-        );
+        setCurrentViewportBbox();
       };
       map.on("dragstart", markUserViewportChange);
       map.on("zoomstart", markUserViewportChange);
       map.on("moveend", refreshViewportBbox);
+      window.setTimeout(() => {
+        map.resize();
+        setCurrentViewportBbox();
+      }, 250);
     });
 
     const resizeObserver = new ResizeObserver(() => {
@@ -213,6 +237,10 @@ export function App() {
 
     mapRef.current = map;
     return () => {
+      if (viewportRefreshTimerRef.current !== null) {
+        window.clearTimeout(viewportRefreshTimerRef.current);
+        viewportRefreshTimerRef.current = null;
+      }
       resizeObserver.disconnect();
       map.remove();
       mapRef.current = null;
@@ -247,10 +275,17 @@ export function App() {
     if (!selectedDataset && !viewportMode) {
       return;
     }
+    const usageBands = usageBandsForStage(portrayalStage);
     const featureDataset = viewportMode ? null : selectedDataset;
-    const featureLimit = viewportMode ? 5000 : 10000;
-    setMessage(viewportMode ? "지도 범위 feature 로딩 중" : `${selectedDataset?.dsnm ?? "Dataset"} 로딩 중`);
-    fetchFeatures(featureDataset, { bbox: viewportMode ? viewportBbox ?? undefined : undefined, limit: featureLimit })
+    const featureLimit = viewportMode ? featureLimitForStage(portrayalStage) : 10000;
+    setMessage(viewportMode ? `축척 band ${usageBands.join(",")} feature 로딩 중` : `${selectedDataset?.dsnm ?? "Dataset"} 로딩 중`);
+    const controller = new AbortController();
+    fetchFeatures(featureDataset, {
+      bbox: viewportMode ? viewportBbox ?? undefined : undefined,
+      limit: featureLimit,
+      usageBands: viewportMode ? usageBands : undefined,
+      signal: controller.signal
+    })
       .then((featureResult) => {
         setFeatures(featureResult);
         setDetail(null);
@@ -259,11 +294,19 @@ export function App() {
         setSearchResults([]);
         setMessage(
           viewportMode
-            ? `지도 범위 feature ${featureResult.features.length}개`
+            ? `축척 band ${usageBands.join(",")} feature ${featureResult.features.length}개`
             : `${selectedDataset?.dsnm ?? "Dataset"} feature ${featureResult.features.length}개`
         );
       })
-      .catch((error: Error) => setMessage(`Feature 로딩 실패: ${error.message}`));
+      .catch((error: Error) => {
+        if (error.name !== "AbortError") {
+          setMessage(`Feature 로딩 실패: ${error.message}`);
+        }
+      });
+    return () => controller.abort();
+  }, [datasets, selectedDataset, viewportBbox, portrayalStage]);
+
+  useEffect(() => {
     if (selectedDataset) {
       fetchQaSummary(selectedDataset)
         .then(setQa)
@@ -274,7 +317,7 @@ export function App() {
     } else {
       setQa(null);
     }
-  }, [datasets, selectedDataset, viewportBbox]);
+  }, [selectedDataset]);
 
   useEffect(() => {
     updateGeoJsonSource("s101-features", features);
@@ -1350,6 +1393,14 @@ function geometryFromAugmentedPoint(value: unknown): GeometryLike | null {
   const z = Number(parts[3]);
   const coordinates = Number.isFinite(z) ? [x, y, z] : [x, y];
   return { type: "Point", coordinates };
+}
+
+function usageBandsForStage(stage: number) {
+  return usageBandsByStage[stage] ?? usageBandsByStage[2];
+}
+
+function featureLimitForStage(stage: number) {
+  return stage >= 5 ? 1200 : 800;
 }
 
 function createDataCoverage(dataset: DatasetItem | null): FeatureGeoJsonCollection {

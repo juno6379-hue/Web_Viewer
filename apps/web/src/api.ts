@@ -14,17 +14,20 @@ const defaultApiBaseUrl = "http://localhost:3000";
 const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? defaultApiBaseUrl;
 let activeApiBaseUrl = configuredApiBaseUrl;
 
-async function getJson<T>(path: string): Promise<T> {
+async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   let lastError: Error | null = null;
   for (const baseUrl of getApiBaseUrlCandidates()) {
     try {
-      const response = await fetch(`${baseUrl}${path}`);
+      const response = await fetch(`${baseUrl}${path}`, { signal });
       if (!response.ok) {
         throw new Error(`${response.status} ${response.statusText}`);
       }
       activeApiBaseUrl = baseUrl;
       return response.json() as Promise<T>;
     } catch (error) {
+      if (signal?.aborted) {
+        throw error;
+      }
       lastError = error instanceof Error ? error : new Error(String(error));
     }
   }
@@ -41,7 +44,7 @@ export async function fetchDatasets() {
 
 export async function fetchFeatures(
   dataset?: DatasetItem | null,
-  options: { bbox?: string; limit?: number } = {}
+  options: { bbox?: string; limit?: number; usageBands?: string[]; signal?: AbortSignal } = {}
 ) {
   const params = new URLSearchParams({
     limit: String(options.limit ?? 10000)
@@ -53,7 +56,10 @@ export async function fetchFeatures(
   if (options.bbox) {
     params.set("bbox", options.bbox);
   }
-  return getJson<FeatureGeoJsonCollection>(`/api/features?${params.toString()}`);
+  if (options.usageBands && options.usageBands.length > 0) {
+    params.set("usageBands", options.usageBands.join(","));
+  }
+  return getJson<FeatureGeoJsonCollection>(`/api/features?${params.toString()}`, options.signal);
 }
 
 export async function fetchFeatureDetail(featureInstanceId: string) {

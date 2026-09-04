@@ -100,12 +100,14 @@ let portrayalRuleCache: { catalogueRoot: string | null; files: string[] } | null
 let featureNameByCodeCache: { cataloguePath: string | null; names: Map<number, string> } | null = null;
 let featurePrimitiveByCodeCache: { cataloguePath: string | null; primitives: Map<number, string> } | null = null;
 let attributeNameByCodeCache: { cataloguePath: string | null; names: Map<number, string> } | null = null;
+const luaInstructionCache = new Map<string, LuaInstructionPayload | null>();
 
 const numberText = z.string().trim().regex(/^\d+$/).transform((value) => Number(value));
 const featureQuerySchema = z.object({
   datasetId: numberText.optional(),
   datasetVersionId: numberText.optional(),
   bbox: z.string().optional(),
+  usageBands: z.string().optional(),
   featureTypeCode: numberText.optional(),
   limit: numberText.optional()
 });
@@ -304,6 +306,14 @@ export function registerRoutes(app: FastifyInstance) {
       const index = values.length - 3;
       conditions.push(`gj.bbox && ST_MakeEnvelope($${index}, $${index + 1}, $${index + 2}, $${index + 3}, 4326)`);
     }
+    const usageBands = parsed.usageBands
+      ?.split(",")
+      .map((part) => part.trim().toUpperCase())
+      .filter((part) => /^[A-Z]$/.test(part));
+    if (usageBands && usageBands.length > 0) {
+      values.push(Array.from(new Set(usageBands)));
+      conditions.push(`SUBSTRING(dc.dsnm FROM '^101[A-Z]{2}[0-9]+([A-Z])') = ANY($${values.length}::text[])`);
+    }
     values.push(limit);
     const limitIndex = values.length;
 
@@ -322,6 +332,9 @@ export function registerRoutes(app: FastifyInstance) {
       FROM projection.s101_feature_geojson gj
       JOIN projection.s101_feature_current fc
         ON fc.feature_instance_id = gj.feature_instance_id
+      JOIN projection.s101_dataset_current dc
+        ON dc.dataset_id = fc.dataset_id
+       AND dc.dataset_version_id = fc.dataset_version_id
       LEFT JOIN LATERAL (
         SELECT jsonb_build_object('type', 'MultiPoint', 'coordinates', z_coordinates.coordinates) AS geometry_geojson
         FROM (
@@ -1063,10 +1076,29 @@ type LuaInstructionPayload = {
 };
 
 async function createLuaDrawingInstructions(features: ApiFeature[]): Promise<Map<string, LuaInstructionPayload>> {
+  const cached = new Map<string, LuaInstructionPayload>();
+  const missingFeatures: ApiFeature[] = [];
+  for (const feature of features) {
+    if (luaInstructionCache.has(feature.id)) {
+      const payload = luaInstructionCache.get(feature.id);
+      if (payload) {
+        cached.set(feature.id, payload);
+      }
+    } else {
+      missingFeatures.push(feature);
+    }
+  }
+  if (missingFeatures.length === 0) {
+    return cached;
+  }
+
   const luaRuntimePath = getLuaRuntimePath();
   const catalogueRoot = getPortrayalCatalogueRoot();
-  if (!luaRuntimePath || !catalogueRoot || features.length === 0) {
-    return new Map();
+  if (!luaRuntimePath || !catalogueRoot) {
+    for (const feature of missingFeatures) {
+      luaInstructionCache.set(feature.id, null);
+    }
+    return cached;
   }
 
   try {
@@ -1075,7 +1107,7 @@ async function createLuaDrawingInstructions(features: ApiFeature[]): Promise<Map
       catalogueRoot,
       timeoutMs: Number(process.env.LUA_TIMEOUT_MS ?? 20_000)
     });
-    const luaFeatures = features.map((feature) => ({
+    const luaFeatures = missingFeatures.map((feature) => ({
       featureInstanceId: feature.id,
       featureTypeCode: Number(feature.properties.featureTypeCode ?? 0),
       featureCode: resolveFeatureName(feature.properties),
@@ -1098,15 +1130,26 @@ async function createLuaDrawingInstructions(features: ApiFeature[]): Promise<Map
         }))
       );
     }
-    return new Map(
+    const fresh = new Map(
       results.map((result) => [
         result.featureReference,
         { rawInstructions: result.rawInstructions, trace: result.trace }
-      ])
+      ] satisfies [string, LuaInstructionPayload])
     );
+    for (const feature of missingFeatures) {
+      const payload = fresh.get(feature.id) ?? null;
+      luaInstructionCache.set(feature.id, payload);
+      if (payload) {
+        cached.set(feature.id, payload);
+      }
+    }
+    return cached;
   } catch (error) {
     console.warn("S-101 Lua portrayal runtime failed; using fallback DrawingInstruction.", error);
-    return new Map();
+    for (const feature of missingFeatures) {
+      luaInstructionCache.set(feature.id, null);
+    }
+    return cached;
   }
 }
 
