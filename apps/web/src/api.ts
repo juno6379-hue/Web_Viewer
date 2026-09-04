@@ -10,14 +10,29 @@ import type {
   QaSummary
 } from "../../../packages/shared/src/index";
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
+const defaultApiBaseUrl = "http://localhost:3000";
+const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? defaultApiBaseUrl;
+let activeApiBaseUrl = configuredApiBaseUrl;
 
 async function getJson<T>(path: string): Promise<T> {
-  const response = await fetch(`${apiBaseUrl}${path}`);
-  if (!response.ok) {
-    throw new Error(`${response.status} ${response.statusText}`);
+  let lastError: Error | null = null;
+  for (const baseUrl of getApiBaseUrlCandidates()) {
+    try {
+      const response = await fetch(`${baseUrl}${path}`);
+      if (!response.ok) {
+        throw new Error(`${response.status} ${response.statusText}`);
+      }
+      activeApiBaseUrl = baseUrl;
+      return response.json() as Promise<T>;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+    }
   }
-  return response.json() as Promise<T>;
+  throw lastError ?? new Error("API request failed");
+}
+
+function getApiBaseUrlCandidates() {
+  return Array.from(new Set([activeApiBaseUrl, configuredApiBaseUrl, defaultApiBaseUrl]));
 }
 
 export async function fetchDatasets() {
@@ -70,7 +85,7 @@ export async function fetchPortrayalSymbols() {
 }
 
 export function buildPortrayalSymbolUrl(endpoint: string) {
-  return `${apiBaseUrl}${endpoint}`;
+  return `${activeApiBaseUrl}${endpoint}`;
 }
 
 export async function searchFeatures(query: string, datasetId?: string) {

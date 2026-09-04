@@ -84,6 +84,7 @@ export function App() {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const selectedDatasetRef = useRef<DatasetItem | null>(null);
   const catalogueStatusRef = useRef<CatalogueRuntimeStatus | null>(null);
+  const userViewportChangeRef = useRef(false);
   const [datasets, setDatasets] = useState<DatasetItem[]>([]);
   const [selectedDatasetId, setSelectedDatasetId] = useState<string>("");
   const [features, setFeatures] = useState<FeatureGeoJsonCollection>(emptyCollection);
@@ -179,7 +180,16 @@ export function App() {
           .then(setDetail)
           .catch((error: Error) => setMessage(`Feature 상세 조회 실패: ${error.message}`));
       });
+      const markUserViewportChange = (event: { originalEvent?: Event }) => {
+        if (event.originalEvent) {
+          userViewportChangeRef.current = true;
+        }
+      };
       const refreshViewportBbox = () => {
+        if (!userViewportChangeRef.current) {
+          return;
+        }
+        userViewportChangeRef.current = false;
         const bounds = map.getBounds();
         setViewportBbox(
           [
@@ -190,6 +200,8 @@ export function App() {
           ].join(",")
         );
       };
+      map.on("dragstart", markUserViewportChange);
+      map.on("zoomstart", markUserViewportChange);
       map.on("moveend", refreshViewportBbox);
     });
 
@@ -323,6 +335,12 @@ export function App() {
     mapRef.current?.easeTo({ zoom: stage.zoom, duration: 450 });
   }
 
+  function selectDataset(datasetId: string) {
+    userViewportChangeRef.current = false;
+    setViewportBbox(null);
+    setSelectedDatasetId(datasetId);
+  }
+
   function handleSearchSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const query = searchQuery.trim();
@@ -393,7 +411,7 @@ export function App() {
           onSearch={handleSearchSubmit}
           onSearchQueryChange={setSearchQuery}
           onSearchResultSelect={selectSearchResult}
-          onSelectDataset={setSelectedDatasetId}
+          onSelectDataset={selectDataset}
           portrayalStage={portrayalStage}
           qa={qa}
           searchQuery={searchQuery}
