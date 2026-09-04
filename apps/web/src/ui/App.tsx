@@ -124,21 +124,21 @@ export function App() {
       .then((result) => {
         setDatasets(result.items);
         setSelectedDatasetId(result.items[0]?.datasetId ?? "");
-        setMessage(result.items.length > 0 ? "dataset 議고쉶 ?꾨즺" : "dataset ?놁쓬");
+        setMessage(result.items.length > 0 ? "데이터셋 조회 완료" : "데이터셋 없음");
       })
-      .catch((error: Error) => setMessage(`dataset 議고쉶 ?ㅽ뙣: ${error.message}`));
+      .catch((error: Error) => setMessage(`데이터셋 조회 실패: ${error.message}`));
     fetchCatalogueStatus()
       .then(setCatalogueStatus)
-      .catch((error: Error) => setMessage(`catalogue ?곹깭 議고쉶 ?ㅽ뙣: ${error.message}`));
+      .catch((error: Error) => setMessage(`카탈로그 상태 조회 실패: ${error.message}`));
     fetchPortrayalStatus()
       .then(setPortrayalStatus)
-      .catch((error: Error) => setMessage(`portrayal ?곹깭 議고쉶 ?ㅽ뙣: ${error.message}`));
+      .catch((error: Error) => setMessage(`Portrayal 상태 조회 실패: ${error.message}`));
     fetchPortrayalPalette("day")
       .then(setPortrayalPalette)
-      .catch((error: Error) => setMessage(`portrayal palette 議고쉶 ?ㅽ뙣: ${error.message}`));
+      .catch((error: Error) => setMessage(`Portrayal palette 조회 실패: ${error.message}`));
     fetchPortrayalSymbols()
       .then(setPortrayalSymbols)
-      .catch((error: Error) => setMessage(`portrayal symbol 議고쉶 ?ㅽ뙣: ${error.message}`));
+      .catch((error: Error) => setMessage(`Portrayal symbol 조회 실패: ${error.message}`));
   }, []);
 
   useEffect(() => {
@@ -177,7 +177,7 @@ export function App() {
         setSelectedFeature(createSelectedCollection(String(featureInstanceId), feature.geometry, feature.properties ?? {}));
         fetchFeatureDetail(String(featureInstanceId))
           .then(setDetail)
-          .catch((error: Error) => setMessage(`feature ?곸꽭 議고쉶 ?ㅽ뙣: ${error.message}`));
+          .catch((error: Error) => setMessage(`Feature 상세 조회 실패: ${error.message}`));
       });
       const refreshViewportBbox = () => {
         const bounds = map.getBounds();
@@ -190,11 +190,21 @@ export function App() {
           ].join(",")
         );
       };
-      refreshViewportBbox();
       map.on("moveend", refreshViewportBbox);
     });
 
+    const resizeObserver = new ResizeObserver(() => {
+      map.resize();
+    });
+    resizeObserver.observe(mapContainerRef.current);
+    window.setTimeout(() => map.resize(), 0);
+
     mapRef.current = map;
+    return () => {
+      resizeObserver.disconnect();
+      map.remove();
+      mapRef.current = null;
+    };
   }, []);
 
   useEffect(() => {
@@ -209,9 +219,9 @@ export function App() {
       }
       registerPortrayalImages(map, requiredSymbols)
         .then(() => {
-          setMessage(`portrayal symbol ${requiredSymbols.length}媛?濡쒕뵫 ?꾨즺`);
+          setMessage(`Portrayal symbol ${requiredSymbols.length}개 로딩 완료`);
         })
-        .catch((error: Error) => setMessage(`portrayal symbol ?대?吏 濡쒕뵫 ?ㅽ뙣: ${error.message}`));
+        .catch((error: Error) => setMessage(`Portrayal symbol 이미지 로딩 실패: ${error.message}`));
     };
     if (map.isStyleLoaded()) {
       loadImages();
@@ -221,26 +231,37 @@ export function App() {
   }, [features, portrayalSymbols]);
 
   useEffect(() => {
-    if (!selectedDataset && !viewportBbox) {
+    const viewportMode = Boolean(viewportBbox && datasets.length > 0);
+    if (!selectedDataset && !viewportMode) {
       return;
     }
-    setMessage(viewportBbox ? "Loading viewport features" : `${selectedDataset!.dsnm} loading`);
-    fetchFeatures(viewportBbox ? null : selectedDataset, { bbox: viewportBbox ?? undefined, limit: 20000 })
+    const featureDataset = viewportMode ? null : selectedDataset;
+    const featureLimit = viewportMode ? 5000 : 10000;
+    setMessage(viewportMode ? "지도 범위 feature 로딩 중" : `${selectedDataset?.dsnm ?? "Dataset"} 로딩 중`);
+    fetchFeatures(featureDataset, { bbox: viewportMode ? viewportBbox ?? undefined : undefined, limit: featureLimit })
       .then((featureResult) => {
         setFeatures(featureResult);
         setDetail(null);
         setSelectedFeature(emptyCollection);
-        setDataCoverage(viewportBbox ? createDataCoverageCollection(datasets) : createDataCoverage(selectedDataset));
+        setDataCoverage(viewportMode ? createDataCoverageCollection(datasets) : createDataCoverage(selectedDataset));
         setSearchResults([]);
-        setMessage(viewportBbox ? `viewport feature ${featureResult.features.length} items` : `${selectedDataset!.dsnm} feature ${featureResult.features.length} items`);
+        setMessage(
+          viewportMode
+            ? `지도 범위 feature ${featureResult.features.length}개`
+            : `${selectedDataset?.dsnm ?? "Dataset"} feature ${featureResult.features.length}개`
+        );
       })
-      .catch((error: Error) => setMessage(`feature load failed: ${error.message}`));
-    fetchQaSummary(selectedDataset!)
-      .then(setQa)
-      .catch((error: Error) => {
-        setQa(null);
-        setMessage(`${selectedDataset!.dsnm} QA load failed: ${error.message}`);
-      });
+      .catch((error: Error) => setMessage(`Feature 로딩 실패: ${error.message}`));
+    if (selectedDataset) {
+      fetchQaSummary(selectedDataset)
+        .then(setQa)
+        .catch((error: Error) => {
+          setQa(null);
+          setMessage(`${selectedDataset.dsnm} QA 로딩 실패: ${error.message}`);
+        });
+    } else {
+      setQa(null);
+    }
   }, [datasets, selectedDataset, viewportBbox]);
 
   useEffect(() => {
@@ -384,7 +405,7 @@ export function App() {
         <MapPanel mapContainerRef={mapContainerRef} onStageChange={changePortrayalStage} stage={activeStage} />
         <aside className="inspector-panel">
           <PanelHeader title="Feature Inspector" />
-          {detail ? <FeaturePanel detail={detail} /> : <p className="muted">吏???먮뒗 寃??寃곌낵?먯꽌 feature瑜??좏깮?섏꽭??</p>}
+          {detail ? <FeaturePanel detail={detail} /> : <p className="muted">지도 또는 검색 결과에서 feature를 선택하세요.</p>}
         </aside>
       </section>
       <QaDashboard qa={qa} />
@@ -474,7 +495,7 @@ function DatasetExplorer({
     <aside className="explorer-panel">
       <PanelHeader title="Dataset Explorer" />
       <section className="panel-section">
-        <label htmlFor="dataset">?곗씠?곗뀑 紐⑸줉</label>
+        <label htmlFor="dataset">데이터셋 목록</label>
         <select id="dataset" value={selectedDatasetId} onChange={(event) => onSelectDataset(event.target.value)}>
           {datasets.map((dataset) => (
             <option key={dataset.datasetId} value={dataset.datasetId}>
@@ -534,14 +555,14 @@ function DatasetExplorer({
       <section className="panel-section">
         <h2>Lua / SCAMIN</h2>
         <div className="scale-card">
-          <strong>?④퀎 {portrayalStage}</strong>
+          <strong>단계 {portrayalStage}</strong>
           <span>{stage.mode}</span>
           <span>{stage.scale}</span>
-          <small>?꾩옱??Lua rule ?ㅽ뻾 ???④퀎?대ŉ, SCAMIN/SMIN/SMAX ?뺤씤??zoom band?낅땲??</small>
+          <small>현재 Lua rule 실행 단계이며, SCAMIN/SMIN/SMAX 확인용 zoom band입니다.</small>
         </div>
       </section>
       <section className="panel-section">
-        <h2>QA ?붿빟</h2>
+        <h2>QA 요약</h2>
         <div className="summary-tiles">
           <Metric label="Missing GeoJSON" value={qa?.missingGeoJson ?? 0} />
           <Metric label="Invalid Geometry" value={qa?.invalidGeometry ?? 0} />
@@ -741,7 +762,7 @@ function FeatureAttributes({ detail }: { detail: FeatureDetail }) {
           ])}
         />
       ) : (
-        <p className="muted">simple attribute ?놁쓬</p>
+        <p className="muted">simple attribute 없음</p>
       )}
       <h3>Complex Attribute</h3>
       {detail.complexAttributes.length > 0 ? (
@@ -756,7 +777,7 @@ function FeatureAttributes({ detail }: { detail: FeatureDetail }) {
           ])}
         />
       ) : (
-        <p className="muted">complex attribute ?놁쓬</p>
+        <p className="muted">complex attribute 없음</p>
       )}
     </div>
   );
@@ -764,7 +785,7 @@ function FeatureAttributes({ detail }: { detail: FeatureDetail }) {
 
 function FeatureAssociations({ detail }: { detail: FeatureDetail }) {
   if (detail.associations.length === 0) {
-    return <p className="muted">association ?놁쓬</p>;
+    return <p className="muted">association 없음</p>;
   }
   return (
     <DataTable
@@ -781,7 +802,7 @@ function FeatureAssociations({ detail }: { detail: FeatureDetail }) {
 
 function FeatureSpatial({ detail }: { detail: FeatureDetail }) {
   if (detail.spatial.length === 0) {
-    return <p className="muted">spatial reference ?놁쓬</p>;
+    return <p className="muted">spatial reference 없음</p>;
   }
   return (
     <DataTable
@@ -821,7 +842,7 @@ function FeatureRawRecord({ detail }: { detail: FeatureDetail }) {
           <dd>{detail.rawRecord.decodeStatus}</dd>
         </dl>
       ) : (
-        <p className="muted">raw record locator ?놁쓬</p>
+        <p className="muted">raw record locator 없음</p>
       )}
       <h3>Projection Attributes</h3>
       <pre>{JSON.stringify(detail.attributes, null, 2)}</pre>
@@ -831,7 +852,7 @@ function FeatureRawRecord({ detail }: { detail: FeatureDetail }) {
 
 function FeatureValidation({ detail }: { detail: FeatureDetail }) {
   if (detail.validationIssues.length === 0) {
-    return <p className="muted">?대떦 feature validation issue ?놁쓬</p>;
+    return <p className="muted">해당 feature validation issue 없음</p>;
   }
   return (
     <div className="stack">
