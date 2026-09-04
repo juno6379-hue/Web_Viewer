@@ -24,12 +24,20 @@ export async function fetchDatasets() {
   return getJson<{ items: DatasetItem[] }>("/api/datasets");
 }
 
-export async function fetchFeatures(dataset: DatasetItem) {
+export async function fetchFeatures(
+  dataset?: DatasetItem | null,
+  options: { bbox?: string; limit?: number } = {}
+) {
   const params = new URLSearchParams({
-    datasetId: dataset.datasetId,
-    datasetVersionId: dataset.datasetVersionId,
-    limit: "10000"
+    limit: String(options.limit ?? 10000)
   });
+  if (dataset) {
+    params.set("datasetId", dataset.datasetId);
+    params.set("datasetVersionId", dataset.datasetVersionId);
+  }
+  if (options.bbox) {
+    params.set("bbox", options.bbox);
+  }
   return getJson<FeatureGeoJsonCollection>(`/api/features?${params.toString()}`);
 }
 

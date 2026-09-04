@@ -50,23 +50,39 @@ export class ExternalLuaPortrayalRuntime {
 function createLuaHostScript(catalogueRoot: string, features: PortrayalFeature[], context: PortrayalContext): string {
   const rulesRoot = join(catalogueRoot, "Rules").replace(/\\/g, "/");
   const attributeValueTypes = inferAttributeValueTypes(features);
+  const complexAttributeTypeCodes = inferComplexAttributeTypeCodes(features);
   return `
 local features = ${toLuaValue(features.map((feature) => normalizeLuaFeature(feature)))}
 local attributeValueTypes = ${toLuaValue(attributeValueTypes)}
 local featureTypeCodes = ${toLuaValue([...new Set(features.map((feature) => feature.featureCode).filter(Boolean))])}
 local simpleAttributeTypeCodes = ${toLuaValue(Object.keys(attributeValueTypes))}
+local complexAttributeTypeCodes = ${toLuaValue(complexAttributeTypeCodes)}
+local complexAttributeTypeCodeSet = {}
+for _, code in ipairs(complexAttributeTypeCodes) do
+  complexAttributeTypeCodeSet[code] = true
+end
 local informationTypeCodes = { "NauticalInformation", "NonStandardWorkingDay", "ServiceHours", "SpatialQuality" }
 local featureAssociationTypeCodes = { "TextAssociation", "StructureEquipment" }
 local informationAssociationTypeCodes = { "AdditionalInformation", "SpatialAssociation" }
 local roleTypeCodes = { "theInformation", "theQualityInformation", "theEquipment" }
 local repeatingAttributes = {
+  categoryOfLight = true,
+  categoryOfLandmark = true,
+  colour = true,
   featureName = true,
   fixedDateRange = true,
+  ["function"] = true,
   information = true,
+  lightSector = true,
   periodicDateRange = true,
   pictorialRepresentation = true,
+  qualityOfVerticalMeasurement = true,
   restriction = true,
   shapeInformation = true,
+  signalGeneration = true,
+  sectorCharacteristics = true,
+  status = true,
+  techniqueOfVerticalMeasurement = true,
   textType = true,
   topmark = true
 }
@@ -158,6 +174,9 @@ local function complexContainer(feature, attributePath)
   local current = feature.complexAttributes
   for _, step in ipairs(path) do
     local values = current[step.code]
+    if not values and current.complexAttributes then
+      values = current.complexAttributes[step.code]
+    end
     if not values then
       return nil
     end
@@ -366,14 +385,14 @@ function HostInformationTypeGetComplexAttributeCount(informationID, attributePat
 function HostGetFeatureTypeCodes() return featureTypeCodes end
 function HostGetInformationTypeCodes() return informationTypeCodes end
 function HostGetSimpleAttributeTypeCodes() return simpleAttributeTypeCodes end
-function HostGetComplexAttributeTypeCodes() return {} end
+function HostGetComplexAttributeTypeCodes() return complexAttributeTypeCodes end
 function HostGetFeatureAssociationTypeCodes() return featureAssociationTypeCodes end
 function HostGetInformationAssociationTypeCodes() return informationAssociationTypeCodes end
 function HostGetRoleTypeCodes() return roleTypeCodes end
 function HostGetFeatureTypeInfo(code) return featureTypeInfo() end
 function HostGetInformationTypeInfo(code) return featureTypeInfo() end
 function HostGetSimpleAttributeTypeInfo(code) return simpleAttributeInfo(code) end
-function HostGetComplexAttributeTypeInfo(code) return { Type = "ComplexAttribute", AttributeBindings = {} } end
+function HostGetComplexAttributeTypeInfo(code) return featureTypeInfo() end
 function HostGetFeatureAssociationTypeInfo(code) return {} end
 function HostGetInformationAssociationTypeInfo(code) return {} end
 function HostGetRoleTypeInfo(code) return {} end
@@ -421,8 +440,22 @@ GetTypeInfo = function()
   end
   ensureInfoTable("FeatureTypeInfos", "FeatureTypeInfo")
   ensureInfoTable("InformationTypeInfos", "InformationTypeInfo")
-  ensureInfoTable("SimpleAttributeInfos", "SimpleAttributeInfo")
-  ensureInfoTable("ComplexAttributeInfos", "ComplexAttributeInfo")
+  if ti.SimpleAttributeInfos and not getmetatable(ti.SimpleAttributeInfos) then
+    setmetatable(ti.SimpleAttributeInfos, { __index = function(t, k)
+      if complexAttributeTypeCodeSet[k] then return nil end
+      local value = { Type = "SimpleAttributeInfo", Code = k }
+      rawset(t, k, value)
+      return value
+    end })
+  end
+  if ti.ComplexAttributeInfos and not getmetatable(ti.ComplexAttributeInfos) then
+    setmetatable(ti.ComplexAttributeInfos, { __index = function(t, k)
+      if not complexAttributeTypeCodeSet[k] then return nil end
+      local value = { Type = "ComplexAttributeInfo", Code = k }
+      rawset(t, k, value)
+      return value
+    end })
+  end
   ensureInfoTable("RoleInfos", "RoleInfo")
   ensureInfoTable("InformationAssociationInfos", "InformationAssociationInfo")
   ensureInfoTable("FeatureAssociationInfos", "FeatureAssociationInfo")
@@ -556,24 +589,68 @@ function inferAttributeValueTypes(features: PortrayalFeature[]): Record<string, 
     valueOfDepthContour: "real",
     verticalLength: "real"
   };
+  const inferSimpleAttribute = (name: string, value: unknown) => {
+    const scalar = Array.isArray(value) ? value.find((item) => item !== null && item !== undefined) : value;
+    if (scalar === null || scalar === undefined) return;
+    if (/date/i.test(name)) {
+      types[name] = "date";
+    } else if (/depth|valueOf|height|length|width|radius|distance|bearing|period|orientation/i.test(name)) {
+      types[name] = "real";
+    } else if (typeof scalar === "number") {
+      types[name] = Number.isInteger(scalar) ? "integer" : "real";
+    } else if (typeof scalar === "boolean") {
+      types[name] = "boolean";
+    } else {
+      types[name] = "text";
+    }
+  };
+  const walkComplexAttributes = (complexAttributes: unknown) => {
+    if (!complexAttributes || typeof complexAttributes !== "object" || Array.isArray(complexAttributes)) return;
+    for (const values of Object.values(complexAttributes as Record<string, unknown>)) {
+      if (!Array.isArray(values)) continue;
+      for (const value of values) {
+        if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+        const node = value as Record<string, unknown>;
+        const simpleAttributes = node.simpleAttributes;
+        if (simpleAttributes && typeof simpleAttributes === "object" && !Array.isArray(simpleAttributes)) {
+          for (const [name, attributeValue] of Object.entries(simpleAttributes as Record<string, unknown>)) {
+            inferSimpleAttribute(name, attributeValue);
+          }
+        }
+        walkComplexAttributes(node.complexAttributes);
+      }
+    }
+  };
   for (const feature of features) {
     for (const [name, value] of Object.entries(feature.attributes)) {
-      const scalar = Array.isArray(value) ? value.find((item) => item !== null && item !== undefined) : value;
-      if (scalar === null || scalar === undefined) continue;
-      if (/date/i.test(name)) {
-        types[name] = "date";
-      } else if (/depth|valueOf|height|length|width|radius|distance|bearing/i.test(name)) {
-        types[name] = "real";
-      } else if (typeof scalar === "number") {
-        types[name] = Number.isInteger(scalar) ? "integer" : "real";
-      } else if (typeof scalar === "boolean") {
-        types[name] = "boolean";
+      if (name === "__complexAttributes") {
+        walkComplexAttributes(value);
       } else {
-        types[name] = "text";
+        inferSimpleAttribute(name, value);
       }
     }
   }
   return types;
+}
+
+function inferComplexAttributeTypeCodes(features: PortrayalFeature[]): string[] {
+  const complexCodes = new Set<string>();
+  const walkComplexAttributes = (complexAttributes: unknown) => {
+    if (!complexAttributes || typeof complexAttributes !== "object" || Array.isArray(complexAttributes)) return;
+    for (const [name, values] of Object.entries(complexAttributes as Record<string, unknown>)) {
+      complexCodes.add(name);
+      if (!Array.isArray(values)) continue;
+      for (const value of values) {
+        if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+        walkComplexAttributes((value as Record<string, unknown>).complexAttributes);
+      }
+    }
+  };
+
+  for (const feature of features) {
+    walkComplexAttributes(feature.attributes.__complexAttributes);
+  }
+  return [...complexCodes];
 }
 
 function scalarLuaAttributeValue(value: unknown): string | number | boolean | null {

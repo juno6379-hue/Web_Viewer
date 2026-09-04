@@ -3,8 +3,8 @@ import dotenv from "dotenv";
 import Fastify from "fastify";
 import { registerRoutes } from "./routes.js";
 
-dotenv.config({ path: "../../.env" });
-dotenv.config();
+dotenv.config({ path: "../../.env", override: true });
+dotenv.config({ override: true });
 
 const port = Number(process.env.API_PORT ?? 3000);
 const app = Fastify({ logger: true });

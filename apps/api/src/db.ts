@@ -1,7 +1,11 @@
 import pg from "pg";
+import dotenv from "dotenv";
 import type { QueryResultRow } from "pg";
 
 const { Pool } = pg;
+
+dotenv.config({ path: "../../.env", override: true });
+dotenv.config({ override: true });
 
 function createPoolConfig(): pg.PoolConfig {
   if (process.env.DATABASE_URL) {

@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import type {
   CatalogueRuntimeStatus,
@@ -23,12 +23,6 @@ import { query } from "./db.js";
 const productSpecification = "2.0";
 const featureCatalogueVersion: string | null = process.env.FEATURE_CATALOGUE_VERSION ?? "2.0.0";
 const portrayalCatalogueVersion: string | null = process.env.PORTRAYAL_CATALOGUE_VERSION ?? "2.0.0";
-const defaultPortrayalCataloguePath =
-  "D:\\dev\\s100-parser\\_2026-08-21 S100 臾몄꽌 諛??뚯꽌\\101_Portrayal_Catalogue_2.0.0.zip.signature\\S-101\\CATALOGUES\\101_Portrayal_Catalogue_2.0.0\\PortrayalCatalog";
-
-const defaultFeatureCataloguePath =
-  "D:\\dev\\s100-parser\\_2026-08-21 S100 臾몄꽌 諛??뚯꽌\\101_Feature_Catalogue_2.0.0.xml.signature\\S-101\\CATALOGUES\\101_Feature_Catalogue_2.0.0.xml";
-
 const s101PaletteDay: Record<string, string> = {
   CHWHT: "#C9EDFF",
   DEPVS: "#61B7FF",
@@ -109,7 +103,7 @@ let attributeNameByCodeCache: { cataloguePath: string | null; names: Map<number,
 
 const numberText = z.string().trim().regex(/^\d+$/).transform((value) => Number(value));
 const featureQuerySchema = z.object({
-  datasetId: numberText,
+  datasetId: numberText.optional(),
   datasetVersionId: numberText.optional(),
   bbox: z.string().optional(),
   featureTypeCode: numberText.optional(),
@@ -283,8 +277,13 @@ export function registerRoutes(app: FastifyInstance) {
   app.get("/api/features", async (request) => {
     const parsed = featureQuerySchema.parse(request.query);
     const limit = Math.min(parsed.limit ?? 5000, 20000);
-    const values: unknown[] = [parsed.datasetId];
-    const conditions = ["gj.dataset_id = $1"];
+    const values: unknown[] = [];
+    const conditions: string[] = [];
+
+    if (parsed.datasetId !== undefined) {
+      values.push(parsed.datasetId);
+      conditions.push(`gj.dataset_id = $${values.length}`);
+    }
 
     if (parsed.datasetVersionId !== undefined) {
       values.push(parsed.datasetVersionId);
@@ -315,11 +314,30 @@ export function registerRoutes(app: FastifyInstance) {
       geometry_geojson: unknown;
     }>(
       `
-      SELECT gj.feature_instance_id::text, gj.feature_type_code, gj.properties, gj.geometry_geojson
+      SELECT
+        gj.feature_instance_id::text,
+        gj.feature_type_code,
+        gj.properties,
+        COALESCE(z_geometry.geometry_geojson, gj.geometry_geojson) AS geometry_geojson
       FROM projection.s101_feature_geojson gj
       JOIN projection.s101_feature_current fc
         ON fc.feature_instance_id = gj.feature_instance_id
-      WHERE ${conditions.join(" AND ")}
+      LEFT JOIN LATERAL (
+        SELECT jsonb_build_object('type', 'MultiPoint', 'coordinates', z_coordinates.coordinates) AS geometry_geojson
+        FROM (
+          SELECT jsonb_agg(jsonb_build_array(c.x::double precision, c.y::double precision, c.z::double precision) ORDER BY sr.ordinal, c.coordinate_ordinal) AS coordinates
+          FROM canonical.spatial_reference sr
+          JOIN canonical.spatial_record spatial
+            ON spatial.spatial_record_id = sr.spatial_record_id
+          JOIN canonical.coordinate c
+            ON c.spatial_record_id = spatial.spatial_record_id
+          WHERE sr.feature_record_id = fc.feature_record_id
+            AND c.z IS NOT NULL
+            AND spatial.spatial_type IN ('point', 'point_set', 'pointset', 'multi_point', 'multipoint')
+        ) z_coordinates
+        WHERE z_coordinates.coordinates IS NOT NULL
+      ) z_geometry ON true
+      ${conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : ""}
       ORDER BY gj.feature_instance_id
       LIMIT $${limitIndex}
       `,
@@ -1093,7 +1111,10 @@ async function createLuaDrawingInstructions(features: ApiFeature[]): Promise<Map
 }
 
 function createFeaturePortrayalProperties(properties: Record<string, unknown>, luaPayload: LuaInstructionPayload | null): Record<string, unknown> {
-  const rawInstructions = luaPayload?.rawInstructions ?? createFallbackDrawingInstructionText(properties);
+  const noDepthWreckFallback = shouldApplyNoDepthWreckFallback(properties, luaPayload);
+  const rawInstructions = noDepthWreckFallback
+    ? ["ViewingGroup:34050;DrawingPriority:12;DisplayPlane:UnderRadar;PointInstruction:WRECKS05"]
+    : luaPayload?.rawInstructions ?? createFallbackDrawingInstructionText(properties);
   const drawingInstructions: PortrayalDrawingInstruction[] = parseDrawingInstructionText(rawInstructions).map((instruction) => ({
     raw: instruction.raw,
     tokens: instruction.tokens,
@@ -1110,8 +1131,8 @@ function createFeaturePortrayalProperties(properties: Record<string, unknown>, l
 
   return {
     portrayalRuleName: resolveFeatureName(properties) || null,
-    portrayalInstructionSource: luaPayload ? "lua" : "mvp-fallback",
-    portrayalLuaTrace: luaPayload?.trace ?? [],
+    portrayalInstructionSource: noDepthWreckFallback ? "lua-host-fallback" : luaPayload ? "lua" : "mvp-fallback",
+    portrayalLuaTrace: noDepthWreckFallback ? [] : luaPayload?.trace ?? [],
     portrayalDrawingInstructionText: rawInstructions,
     portrayalDrawingInstructions: drawingInstructions,
     portrayalSymbolRef: resolvePointSymbolRef(drawingInstructions),
@@ -1124,10 +1145,18 @@ function createFeaturePortrayalProperties(properties: Record<string, unknown>, l
   };
 }
 
+function shouldApplyNoDepthWreckFallback(properties: Record<string, unknown>, luaPayload: LuaInstructionPayload | null): boolean {
+  return (
+    resolveFeatureName(properties) === "Wreck" &&
+    !!luaPayload?.trace?.some((item) => item.includes("Neither valueOfSounding or defaultClearanceDepth have a value"))
+  );
+}
+
 function createLuaAttributeMap(properties: Record<string, unknown>): Record<string, unknown> {
   const attributes: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(properties)) {
     if (key.startsWith("portrayal_")) continue;
+    if (key === "attributes") continue;
     attributes[key] = value;
   }
 
@@ -1138,11 +1167,12 @@ function createLuaAttributeMap(properties: Record<string, unknown>): Record<stri
         record,
         name: String(record.name ?? attributeNameByCode(Number(record.natc)) ?? ""),
         valueType: String(record.valueType ?? ""),
+        ordinal: Number(record.attributeOrdinal ?? record.attribute_ordinal ?? record.atix ?? 0),
         atix: Number(record.atix ?? 0),
         paix: Number(record.paix ?? 0)
       }));
-    const parentAtix = new Set(attributeRecords.filter((item) => item.paix > 0).map((item) => item.paix));
-    const nodesByAtix = new Map<number, Record<string, unknown>>();
+    const parentOrdinals = new Set(attributeRecords.filter((item) => item.paix > 0).map((item) => item.paix));
+    const nodesByOrdinal = new Map<number, Record<string, unknown>>();
     const roots: Record<string, Array<Record<string, unknown>>> = {};
     const addValue = (target: Record<string, unknown>, name: string, value: unknown) => {
       if (!name || value === null || value === undefined) return;
@@ -1154,29 +1184,42 @@ function createLuaAttributeMap(properties: Record<string, unknown>): Record<stri
         target[name] = [target[name], value];
       }
     };
+    const addComplex = (target: Record<string, unknown>, name: string, node: Record<string, unknown>) => {
+      if (!name) return;
+      if (!target[name]) target[name] = [];
+      (target[name] as Array<Record<string, unknown>>).push(node);
+    };
 
     for (const item of attributeRecords) {
-      if (!item.name || item.atix <= 0) continue;
-      if (!parentAtix.has(item.atix) && item.valueType.toLowerCase() !== "complex") continue;
-      nodesByAtix.set(item.atix, { simpleAttributes: {}, complexAttributes: {} });
+      if (!item.name || item.ordinal <= 0) continue;
+      if (!parentOrdinals.has(item.ordinal) && item.valueType.toLowerCase() !== "complex") continue;
+      nodesByOrdinal.set(item.ordinal, { simpleAttributes: {}, complexAttributes: {} });
     }
 
     for (const item of attributeRecords) {
       if (!item.name) continue;
+      const isComplex = item.valueType.toLowerCase() === "complex";
       const value =
         item.record.valueInteger ??
         item.record.valueNumeric ??
         item.record.valueText ??
         item.record.valueDate ??
         item.record.rawValue;
-      const parent = item.paix > 0 ? nodesByAtix.get(item.paix) : null;
+      const parent = item.paix > 0 ? nodesByOrdinal.get(item.paix) : null;
       if (parent) {
-        addValue(parent.simpleAttributes as Record<string, unknown>, item.name, value);
+        if (isComplex && item.ordinal > 0 && nodesByOrdinal.has(item.ordinal)) {
+          addComplex(
+            parent.complexAttributes as Record<string, unknown>,
+            item.name,
+            nodesByOrdinal.get(item.ordinal) as Record<string, unknown>
+          );
+        } else {
+          addValue(parent.simpleAttributes as Record<string, unknown>, item.name, value);
+        }
         continue;
       }
-      if (item.atix > 0 && nodesByAtix.has(item.atix)) {
-        if (!roots[item.name]) roots[item.name] = [];
-        roots[item.name].push(nodesByAtix.get(item.atix) as Record<string, unknown>);
+      if (isComplex && item.ordinal > 0 && nodesByOrdinal.has(item.ordinal)) {
+        addComplex(roots, item.name, nodesByOrdinal.get(item.ordinal) as Record<string, unknown>);
         continue;
       }
       addValue(attributes, item.name, value);
@@ -1327,14 +1370,66 @@ function resolveMvpSymbolRef(properties: Record<string, unknown>): string | null
 function getPortrayalCatalogueRoot(): string | null {
   const configuredPath = process.env.PORTRAYAL_CATALOGUE_PATH ? resolve(process.env.PORTRAYAL_CATALOGUE_PATH) : null;
   if (configuredPath && existsSync(configuredPath)) return configuredPath;
-  if (existsSync(defaultPortrayalCataloguePath)) return defaultPortrayalCataloguePath;
+  const discovered = findFirstCatalogueFile((filePath) => basename(filePath).toLowerCase() === "portrayal_catalogue.xml");
+  if (discovered) return dirname(discovered);
   return null;
 }
 
 function getFeatureCataloguePath(): string | null {
   const configuredPath = process.env.FEATURE_CATALOGUE_PATH ? resolve(process.env.FEATURE_CATALOGUE_PATH) : null;
   if (configuredPath && existsSync(configuredPath)) return configuredPath;
-  if (existsSync(defaultFeatureCataloguePath)) return defaultFeatureCataloguePath;
+  return findFirstCatalogueFile((filePath) => /^101_Feature_Catalogue.*\.xml$/i.test(basename(filePath)));
+}
+
+function findFirstCatalogueFile(predicate: (filePath: string) => boolean): string | null {
+  for (const root of catalogueSearchRoots()) {
+    const found = findFirstFile(root, predicate, 10);
+    if (found) return found;
+  }
+  return null;
+}
+
+function catalogueSearchRoots(): string[] {
+  const candidates = [
+    process.env.S100_CATALOGUE_ROOT,
+    process.env.S100_PARSER_ROOT,
+    "D:\\dev\\s100-parser",
+    resolve(process.cwd(), "..", "s100-parser"),
+    resolve(process.cwd(), "..", "..", "s100-parser"),
+    resolve(process.cwd(), ".."),
+    process.cwd()
+  ].filter((value): value is string => !!value && existsSync(value));
+
+  return [...new Set(candidates.map((value) => resolve(value)))];
+}
+
+function findFirstFile(root: string, predicate: (filePath: string) => boolean, maxDepth: number): string | null {
+  if (maxDepth < 0) return null;
+
+  let entries;
+  try {
+    entries = readdirSync(root, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+
+  const fileMatches = entries
+    .filter((entry) => entry.isFile())
+    .map((entry) => join(root, entry.name))
+    .filter(predicate)
+    .sort((left, right) => left.localeCompare(right));
+  if (fileMatches[0]) return fileMatches[0];
+
+  const directories = entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => join(root, entry.name))
+    .filter((path) => !path.includes(`${join("node_modules")}`) && !path.includes(`${join(".git")}`))
+    .sort((left, right) => left.localeCompare(right));
+
+  for (const directory of directories) {
+    const found = findFirstFile(directory, predicate, maxDepth - 1);
+    if (found) return found;
+  }
   return null;
 }
 

@@ -1,4 +1,4 @@
-import maplibregl from "maplibre-gl";
+﻿import maplibregl from "maplibre-gl";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type {
   CatalogueRuntimeStatus,
@@ -96,9 +96,10 @@ export function App() {
   const [selectedFeature, setSelectedFeature] = useState<FeatureGeoJsonCollection>(emptyCollection);
   const [dataCoverage, setDataCoverage] = useState<FeatureGeoJsonCollection>(emptyCollection);
   const [validationErrors] = useState<FeatureGeoJsonCollection>(emptyCollection);
+  const [viewportBbox, setViewportBbox] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<FeatureSearchItem[]>([]);
-  const [message, setMessage] = useState("초기화 중");
+  const [message, setMessage] = useState("Initializing");
   const [portrayalStage, setPortrayalStage] = useState(2);
   const [visibleLayers, setVisibleLayers] = useState<Record<string, boolean>>(
     Object.fromEntries(layerDefinitions.map((layer) => [layer.id, true]))
@@ -123,21 +124,21 @@ export function App() {
       .then((result) => {
         setDatasets(result.items);
         setSelectedDatasetId(result.items[0]?.datasetId ?? "");
-        setMessage(result.items.length > 0 ? "dataset 조회 완료" : "dataset 없음");
+        setMessage(result.items.length > 0 ? "dataset 議고쉶 ?꾨즺" : "dataset ?놁쓬");
       })
-      .catch((error: Error) => setMessage(`dataset 조회 실패: ${error.message}`));
+      .catch((error: Error) => setMessage(`dataset 議고쉶 ?ㅽ뙣: ${error.message}`));
     fetchCatalogueStatus()
       .then(setCatalogueStatus)
-      .catch((error: Error) => setMessage(`catalogue 상태 조회 실패: ${error.message}`));
+      .catch((error: Error) => setMessage(`catalogue ?곹깭 議고쉶 ?ㅽ뙣: ${error.message}`));
     fetchPortrayalStatus()
       .then(setPortrayalStatus)
-      .catch((error: Error) => setMessage(`portrayal 상태 조회 실패: ${error.message}`));
+      .catch((error: Error) => setMessage(`portrayal ?곹깭 議고쉶 ?ㅽ뙣: ${error.message}`));
     fetchPortrayalPalette("day")
       .then(setPortrayalPalette)
-      .catch((error: Error) => setMessage(`portrayal palette 조회 실패: ${error.message}`));
+      .catch((error: Error) => setMessage(`portrayal palette 議고쉶 ?ㅽ뙣: ${error.message}`));
     fetchPortrayalSymbols()
       .then(setPortrayalSymbols)
-      .catch((error: Error) => setMessage(`portrayal symbol 조회 실패: ${error.message}`));
+      .catch((error: Error) => setMessage(`portrayal symbol 議고쉶 ?ㅽ뙣: ${error.message}`));
   }, []);
 
   useEffect(() => {
@@ -176,8 +177,21 @@ export function App() {
         setSelectedFeature(createSelectedCollection(String(featureInstanceId), feature.geometry, feature.properties ?? {}));
         fetchFeatureDetail(String(featureInstanceId))
           .then(setDetail)
-          .catch((error: Error) => setMessage(`feature 상세 조회 실패: ${error.message}`));
+          .catch((error: Error) => setMessage(`feature ?곸꽭 議고쉶 ?ㅽ뙣: ${error.message}`));
       });
+      const refreshViewportBbox = () => {
+        const bounds = map.getBounds();
+        setViewportBbox(
+          [
+            bounds.getWest().toFixed(7),
+            bounds.getSouth().toFixed(7),
+            bounds.getEast().toFixed(7),
+            bounds.getNorth().toFixed(7)
+          ].join(",")
+        );
+      };
+      refreshViewportBbox();
+      map.on("moveend", refreshViewportBbox);
     });
 
     mapRef.current = map;
@@ -195,9 +209,9 @@ export function App() {
       }
       registerPortrayalImages(map, requiredSymbols)
         .then(() => {
-          setMessage(`portrayal symbol ${requiredSymbols.length}개 로딩 완료`);
+          setMessage(`portrayal symbol ${requiredSymbols.length}媛?濡쒕뵫 ?꾨즺`);
         })
-        .catch((error: Error) => setMessage(`portrayal symbol 이미지 로딩 실패: ${error.message}`));
+        .catch((error: Error) => setMessage(`portrayal symbol ?대?吏 濡쒕뵫 ?ㅽ뙣: ${error.message}`));
     };
     if (map.isStyleLoaded()) {
       loadImages();
@@ -207,37 +221,39 @@ export function App() {
   }, [features, portrayalSymbols]);
 
   useEffect(() => {
-    if (!selectedDataset) {
+    if (!selectedDataset && !viewportBbox) {
       return;
     }
-    setMessage(`${selectedDataset.dsnm} 조회 중`);
-    fetchFeatures(selectedDataset)
+    setMessage(viewportBbox ? "Loading viewport features" : `${selectedDataset!.dsnm} loading`);
+    fetchFeatures(viewportBbox ? null : selectedDataset, { bbox: viewportBbox ?? undefined, limit: 20000 })
       .then((featureResult) => {
         setFeatures(featureResult);
         setDetail(null);
         setSelectedFeature(emptyCollection);
-        setDataCoverage(createDataCoverage(selectedDataset));
+        setDataCoverage(viewportBbox ? createDataCoverageCollection(datasets) : createDataCoverage(selectedDataset));
         setSearchResults([]);
-        setMessage(`${selectedDataset.dsnm} feature ${featureResult.features.length}건`);
+        setMessage(viewportBbox ? `viewport feature ${featureResult.features.length} items` : `${selectedDataset!.dsnm} feature ${featureResult.features.length} items`);
       })
-      .catch((error: Error) => setMessage(`feature 조회 실패: ${error.message}`));
-    fetchQaSummary(selectedDataset)
+      .catch((error: Error) => setMessage(`feature load failed: ${error.message}`));
+    fetchQaSummary(selectedDataset!)
       .then(setQa)
       .catch((error: Error) => {
         setQa(null);
-        setMessage(`${selectedDataset.dsnm} feature 조회 중 / QA 조회 실패: ${error.message}`);
+        setMessage(`${selectedDataset!.dsnm} QA load failed: ${error.message}`);
       });
-  }, [selectedDataset]);
+  }, [datasets, selectedDataset, viewportBbox]);
 
   useEffect(() => {
     updateGeoJsonSource("s101-features", features);
+    updateGeoJsonSource("s101-area-instructions", createPortrayalAreaCollection(features));
+    updateGeoJsonSource("s101-line-instructions", createPortrayalLineCollection(features));
     updateGeoJsonSource("s101-symbol-instructions", createPortrayalSymbolCollection(features));
     updateGeoJsonSource("s101-text-instructions", createPortrayalTextCollection(features));
     const bounds = createBounds(features);
-    if (bounds) {
+    if (bounds && !viewportBbox) {
       mapRef.current?.fitBounds(bounds, { padding: 60, maxZoom: activeStage.zoom, duration: 500 });
     }
-  }, [features]);
+  }, [features, viewportBbox]);
 
   useEffect(() => {
     updateGeoJsonSource("s101-selected-feature", selectedFeature);
@@ -296,9 +312,9 @@ export function App() {
     searchFeatures(query, selectedDataset?.datasetId)
       .then((result) => {
         setSearchResults(result.items);
-        setMessage(`검색 결과 ${result.items.length}건`);
+        setMessage(`search result ${result.items.length} items`);
       })
-      .catch((error: Error) => setMessage(`검색 실패: ${error.message}`));
+      .catch((error: Error) => setMessage(`search failed: ${error.message}`));
   }
 
   function selectSearchResult(item: FeatureSearchItem) {
@@ -322,7 +338,7 @@ export function App() {
     }
     fetchFeatureDetail(item.featureInstanceId)
       .then(setDetail)
-      .catch((error: Error) => setMessage(`feature 상세 조회 실패: ${error.message}`));
+      .catch((error: Error) => setMessage(`feature detail load failed: ${error.message}`));
   }
 
   function createSelectedCollection(id: string, geometry: unknown, properties: Record<string, unknown>) {
@@ -368,16 +384,16 @@ export function App() {
         <MapPanel mapContainerRef={mapContainerRef} onStageChange={changePortrayalStage} stage={activeStage} />
         <aside className="inspector-panel">
           <PanelHeader title="Feature Inspector" />
-          {detail ? <FeaturePanel detail={detail} /> : <p className="muted">지도 또는 검색 결과에서 feature를 선택하세요.</p>}
+          {detail ? <FeaturePanel detail={detail} /> : <p className="muted">吏???먮뒗 寃??寃곌낵?먯꽌 feature瑜??좏깮?섏꽭??</p>}
         </aside>
       </section>
       <QaDashboard qa={qa} />
       <footer className="viewer-footer">
         <span>projection.s101_feature_geojson</span>
-        <span>Feature Catalogue: {catalogueStatus?.featureCatalogue?.version ?? "미연결"}</span>
+        <span>Feature Catalogue: {catalogueStatus?.featureCatalogue?.version ?? "not_connected"}</span>
         <span>Portrayal: {portrayalStatus?.mode ?? features.portrayalMode ?? "fallback"} / Lua {portrayalStatus?.luaRuntime ?? "not_configured"}</span>
         <span>Palette: {portrayalPalette?.source ?? "fallback"} {portrayalPalette?.version ?? "2.0.0"}</span>
-        <span>SCAMIN 단계 {activeStage.stage}</span>
+        <span>SCAMIN stage {activeStage.stage}</span>
       </footer>
     </main>
   );
@@ -406,7 +422,7 @@ function Header({
         <InfoPill label="Edition" value={dataset?.editionNumber ?? "-"} />
         <InfoPill label="Update" value={dataset?.updateNumber ?? "-"} />
         <InfoPill label="Product Spec" value="2.0" />
-        <InfoPill label="FC" value={catalogueStatus?.featureCatalogue?.version ?? "미연결"} />
+        <InfoPill label="FC" value={catalogueStatus?.featureCatalogue?.version ?? "not_connected"} />
         <InfoPill label="PC" value={catalogueStatus?.portrayalCatalogue?.version ?? "MVP"} />
         <InfoPill label="Status" value={dataset?.conformanceStatus ?? "-"} tone="ok" />
       </div>
@@ -458,7 +474,7 @@ function DatasetExplorer({
     <aside className="explorer-panel">
       <PanelHeader title="Dataset Explorer" />
       <section className="panel-section">
-        <label htmlFor="dataset">데이터셋 목록</label>
+        <label htmlFor="dataset">?곗씠?곗뀑 紐⑸줉</label>
         <select id="dataset" value={selectedDatasetId} onChange={(event) => onSelectDataset(event.target.value)}>
           {datasets.map((dataset) => (
             <option key={dataset.datasetId} value={dataset.datasetId}>
@@ -478,14 +494,14 @@ function DatasetExplorer({
         </dl>
       </section>
       <section className="panel-section">
-        <h2>검색</h2>
+        <h2>Search</h2>
         <form className="search-box" onSubmit={onSearch}>
           <input
             onChange={(event) => onSearchQueryChange(event.target.value)}
             placeholder="Feature code, FOID, Attribute, Dataset"
             value={searchQuery}
           />
-          <button type="submit">검색</button>
+          <button type="submit">Search</button>
         </form>
         {searchResults.length > 0 ? (
           <div className="search-results">
@@ -518,14 +534,14 @@ function DatasetExplorer({
       <section className="panel-section">
         <h2>Lua / SCAMIN</h2>
         <div className="scale-card">
-          <strong>단계 {portrayalStage}</strong>
+          <strong>?④퀎 {portrayalStage}</strong>
           <span>{stage.mode}</span>
           <span>{stage.scale}</span>
-          <small>현재는 Lua rule 실행 전 단계이며, SCAMIN/SMIN/SMAX 확인용 zoom band입니다.</small>
+          <small>?꾩옱??Lua rule ?ㅽ뻾 ???④퀎?대ŉ, SCAMIN/SMIN/SMAX ?뺤씤??zoom band?낅땲??</small>
         </div>
       </section>
       <section className="panel-section">
-        <h2>QA 요약</h2>
+        <h2>QA ?붿빟</h2>
         <div className="summary-tiles">
           <Metric label="Missing GeoJSON" value={qa?.missingGeoJson ?? 0} />
           <Metric label="Invalid Geometry" value={qa?.invalidGeometry ?? 0} />
@@ -595,7 +611,7 @@ function PanelHeader({ title }: { title: string }) {
   return (
     <div className="panel-header">
       <h2>{title}</h2>
-      <span>⌃</span>
+      <span>Status</span>
     </div>
   );
 }
@@ -612,7 +628,7 @@ function QaDashboard({ qa }: { qa: QaSummary | null }) {
       warn: (qa?.associationSourceMissing ?? 0) + (qa?.associationTargetMissing ?? 0)
     },
     { title: "Blocking Validation Issue", value: qa?.blockingValidationIssues ?? 0, warn: qa?.blockingValidationIssues ?? 0 },
-    { title: "Canonical ↔ Projection", value: qa?.projectedFeatures ?? 0, warn: qa?.missingGeoJson ?? 0 },
+    { title: "Canonical to Projection", value: qa?.projectedFeatures ?? 0, warn: qa?.missingGeoJson ?? 0 },
     { title: "Health Check", value: qa ? "OK" : "-", warn: 0 }
   ];
 
@@ -624,7 +640,7 @@ function QaDashboard({ qa }: { qa: QaSummary | null }) {
           <article className="qa-card" key={group.title}>
             <span>{group.title}</span>
             <strong className={Number(group.warn) > 0 ? "warn" : "ok"}>{group.value}</strong>
-            <small>심각 {group.warn} / 정상 {group.warn === 0 ? "OK" : "확인 필요"}</small>
+            <small>warning {group.warn} / status {group.warn === 0 ? "OK" : "check required"}</small>
           </article>
         ))}
       </div>
@@ -684,7 +700,7 @@ function FeatureOverview({ detail }: { detail: FeatureDetail }) {
   return (
     <dl className="meta-grid inspector-grid">
       <dt>Feature Name</dt>
-      <dd>{detail.featureName ?? "catalogue 미연결"}</dd>
+      <dd>{detail.featureName ?? "catalogue not connected"}</dd>
       <dt>Feature Code</dt>
       <dd>{detail.featureTypeCode}</dd>
       <dt>FOID</dt>
@@ -704,7 +720,7 @@ function FeatureOverview({ detail }: { detail: FeatureDetail }) {
       <dt>Update</dt>
       <dd>{detail.dataset.updateNumber ?? "-"}</dd>
       <dt>Catalogue</dt>
-      <dd>{detail.catalogueSnapshotId ?? "snapshot 미연결"}</dd>
+      <dd>{detail.catalogueSnapshotId ?? "snapshot not connected"}</dd>
     </dl>
   );
 }
@@ -725,7 +741,7 @@ function FeatureAttributes({ detail }: { detail: FeatureDetail }) {
           ])}
         />
       ) : (
-        <p className="muted">simple attribute 없음</p>
+        <p className="muted">simple attribute ?놁쓬</p>
       )}
       <h3>Complex Attribute</h3>
       {detail.complexAttributes.length > 0 ? (
@@ -740,7 +756,7 @@ function FeatureAttributes({ detail }: { detail: FeatureDetail }) {
           ])}
         />
       ) : (
-        <p className="muted">complex attribute 없음</p>
+        <p className="muted">complex attribute ?놁쓬</p>
       )}
     </div>
   );
@@ -748,7 +764,7 @@ function FeatureAttributes({ detail }: { detail: FeatureDetail }) {
 
 function FeatureAssociations({ detail }: { detail: FeatureDetail }) {
   if (detail.associations.length === 0) {
-    return <p className="muted">association 없음</p>;
+    return <p className="muted">association ?놁쓬</p>;
   }
   return (
     <DataTable
@@ -765,7 +781,7 @@ function FeatureAssociations({ detail }: { detail: FeatureDetail }) {
 
 function FeatureSpatial({ detail }: { detail: FeatureDetail }) {
   if (detail.spatial.length === 0) {
-    return <p className="muted">spatial reference 없음</p>;
+    return <p className="muted">spatial reference ?놁쓬</p>;
   }
   return (
     <DataTable
@@ -805,7 +821,7 @@ function FeatureRawRecord({ detail }: { detail: FeatureDetail }) {
           <dd>{detail.rawRecord.decodeStatus}</dd>
         </dl>
       ) : (
-        <p className="muted">raw record locator 없음</p>
+        <p className="muted">raw record locator ?놁쓬</p>
       )}
       <h3>Projection Attributes</h3>
       <pre>{JSON.stringify(detail.attributes, null, 2)}</pre>
@@ -815,7 +831,7 @@ function FeatureRawRecord({ detail }: { detail: FeatureDetail }) {
 
 function FeatureValidation({ detail }: { detail: FeatureDetail }) {
   if (detail.validationIssues.length === 0) {
-    return <p className="muted">해당 feature validation issue 없음</p>;
+    return <p className="muted">?대떦 feature validation issue ?놁쓬</p>;
   }
   return (
     <div className="stack">
@@ -861,6 +877,8 @@ function DataTable({ headers, rows }: { headers: string[]; rows: Array<Array<str
 
 function addSources(map: maplibregl.Map) {
   map.addSource("s101-features", { type: "geojson", data: emptyCollection as any });
+  map.addSource("s101-area-instructions", { type: "geojson", data: emptyCollection as any });
+  map.addSource("s101-line-instructions", { type: "geojson", data: emptyCollection as any });
   map.addSource("s101-symbol-instructions", { type: "geojson", data: emptyCollection as any });
   map.addSource("s101-text-instructions", { type: "geojson", data: emptyCollection as any });
   map.addSource("s101-data-coverage", { type: "geojson", data: emptyCollection as any });
@@ -872,7 +890,7 @@ function addLayers(map: maplibregl.Map) {
   map.addLayer({
     id: "s101-surface",
     type: "fill",
-    source: "s101-features",
+    source: "s101-area-instructions",
     filter: ["in", ["geometry-type"], ["literal", ["Polygon", "MultiPolygon"]]],
     paint: {
       "fill-color": [
@@ -892,7 +910,7 @@ function addLayers(map: maplibregl.Map) {
   map.addLayer({
     id: "s101-surface-outline",
     type: "line",
-    source: "s101-features",
+    source: "s101-line-instructions",
     filter: ["all", ["in", ["geometry-type"], ["literal", ["Polygon", "MultiPolygon"]]], ["!=", ["get", "portrayalLineStyleRef"], null]] as any,
     paint: {
       "line-color": portrayalColorExpression(["coalesce", ["get", "portrayalLineColor"], "CHBLK"], "#25313A") as any,
@@ -903,7 +921,7 @@ function addLayers(map: maplibregl.Map) {
   map.addLayer({
     id: "s101-curve",
     type: "line",
-    source: "s101-features",
+    source: "s101-line-instructions",
     filter: ["in", ["geometry-type"], ["literal", ["LineString", "MultiLineString"]]],
     paint: {
       "line-color": portrayalColorExpression(["coalesce", ["get", "portrayalLineColor"], "RESBL"], "#1d4ed8") as any,
@@ -1100,6 +1118,61 @@ function createBoundsFromGeometry(geometry: GeometryLike | null) {
   return bounds;
 }
 
+function createPortrayalAreaCollection(collection: FeatureGeoJsonCollection): FeatureGeoJsonCollection {
+  return {
+    ...collection,
+    features: collection.features.flatMap((feature) => {
+      const drawingInstructions = feature.properties.portrayalDrawingInstructions;
+      if (!Array.isArray(drawingInstructions)) {
+        return [];
+      }
+
+      return (drawingInstructions as PortrayalDrawingInstruction[])
+        .filter((instruction) => instruction.instructionType === "area" && (instruction.colorFill || instruction.areaFillRef))
+        .map((instruction, index) => ({
+          ...feature,
+          id: `${feature.id}-area-${index}`,
+          properties: {
+            ...feature.properties,
+            portrayalAreaFillRef: instruction.areaFillRef,
+            portrayalColorFill: instruction.colorFill,
+            portrayalViewingGroup: instruction.viewingGroup,
+            portrayalDrawingPriority: instruction.drawingPriority,
+            portrayalDisplayPlane: instruction.displayPlane
+          }
+        }));
+    })
+  };
+}
+
+function createPortrayalLineCollection(collection: FeatureGeoJsonCollection): FeatureGeoJsonCollection {
+  return {
+    ...collection,
+    features: collection.features.flatMap((feature) => {
+      const drawingInstructions = feature.properties.portrayalDrawingInstructions;
+      if (!Array.isArray(drawingInstructions)) {
+        return [];
+      }
+
+      return (drawingInstructions as PortrayalDrawingInstruction[])
+        .filter((instruction) => instruction.instructionType === "line" && instruction.lineStyleRef)
+        .map((instruction, index) => ({
+          ...feature,
+          id: `${feature.id}-line-${index}`,
+          geometry: geometryFromAugmentedLine(instruction.tokens, feature.geometry) ?? feature.geometry,
+          properties: {
+            ...feature.properties,
+            portrayalLineStyleRef: instruction.lineStyleRef,
+            portrayalLineColor: instruction.tokens.LineColor ?? instruction.tokens.Color ?? feature.properties.portrayalLineColor,
+            portrayalViewingGroup: instruction.viewingGroup,
+            portrayalDrawingPriority: instruction.drawingPriority,
+            portrayalDisplayPlane: instruction.displayPlane
+          }
+        }));
+    })
+  };
+}
+
 function createPortrayalSymbolCollection(collection: FeatureGeoJsonCollection): FeatureGeoJsonCollection {
   return {
     ...collection,
@@ -1107,11 +1180,12 @@ function createPortrayalSymbolCollection(collection: FeatureGeoJsonCollection): 
       const drawingInstructions = feature.properties.portrayalDrawingInstructions;
       if (!Array.isArray(drawingInstructions)) {
         const symbolRef = feature.properties.portrayalSymbolRef;
-        return typeof symbolRef === "string" && symbolRef.length > 0 ? [feature] : [];
+        return typeof symbolRef === "string" && symbolRef.length > 0 && isPointGeometry(feature.geometry) ? [feature] : [];
       }
 
       return (drawingInstructions as PortrayalDrawingInstruction[])
         .filter((instruction) => instruction.instructionType === "point" && instruction.symbolRef)
+        .filter((instruction) => geometryFromAugmentedPoint(instruction.tokens.AugmentedPoint) || isPointGeometry(feature.geometry))
         .map((instruction, index) => ({
           ...feature,
           id: `${feature.id}-symbol-${index}`,
@@ -1126,6 +1200,75 @@ function createPortrayalSymbolCollection(collection: FeatureGeoJsonCollection): 
         }));
     })
   };
+}
+
+function isPointGeometry(geometry: unknown): boolean {
+  if (!geometry || typeof geometry !== "object") {
+    return false;
+  }
+  const type = (geometry as Record<string, unknown>).type;
+  return type === "Point" || type === "MultiPoint";
+}
+
+function geometryFromAugmentedLine(tokens: Record<string, unknown>, fallbackGeometry: unknown): GeometryLike | null {
+  const ray = tokens.AugmentedRay;
+  if (typeof ray !== "string") {
+    return null;
+  }
+  const origin = firstPointCoordinate(fallbackGeometry);
+  if (!origin) {
+    return null;
+  }
+
+  const parts = ray.split(",").map((part) => part.trim());
+  const bearing = Number(parts[1]);
+  const length = Number(parts[3]);
+  if (!Number.isFinite(bearing) || !Number.isFinite(length)) {
+    return null;
+  }
+
+  return {
+    type: "LineString",
+    coordinates: [origin, destinationCoordinate(origin, bearing, length)]
+  };
+}
+
+function firstPointCoordinate(geometry: unknown): [number, number] | null {
+  if (!geometry || typeof geometry !== "object") {
+    return null;
+  }
+  const record = geometry as Record<string, unknown>;
+  if (record.type === "Point" && Array.isArray(record.coordinates)) {
+    const x = Number(record.coordinates[0]);
+    const y = Number(record.coordinates[1]);
+    return Number.isFinite(x) && Number.isFinite(y) ? [x, y] : null;
+  }
+  if (record.type === "MultiPoint" && Array.isArray(record.coordinates) && Array.isArray(record.coordinates[0])) {
+    const coordinate = record.coordinates[0] as unknown[];
+    const x = Number(coordinate[0]);
+    const y = Number(coordinate[1]);
+    return Number.isFinite(x) && Number.isFinite(y) ? [x, y] : null;
+  }
+  return null;
+}
+
+function destinationCoordinate(origin: [number, number], bearingDegrees: number, distanceMeters: number): [number, number] {
+  const earthRadiusMeters = 6378137;
+  const angularDistance = distanceMeters / earthRadiusMeters;
+  const bearing = (bearingDegrees * Math.PI) / 180;
+  const lon1 = (origin[0] * Math.PI) / 180;
+  const lat1 = (origin[1] * Math.PI) / 180;
+  const lat2 = Math.asin(
+    Math.sin(lat1) * Math.cos(angularDistance) +
+      Math.cos(lat1) * Math.sin(angularDistance) * Math.cos(bearing)
+  );
+  const lon2 =
+    lon1 +
+    Math.atan2(
+      Math.sin(bearing) * Math.sin(angularDistance) * Math.cos(lat1),
+      Math.cos(angularDistance) - Math.sin(lat1) * Math.sin(lat2)
+    );
+  return [(((lon2 * 180) / Math.PI + 540) % 360) - 180, (lat2 * 180) / Math.PI];
 }
 
 function createPortrayalTextCollection(collection: FeatureGeoJsonCollection): FeatureGeoJsonCollection {
@@ -1189,6 +1332,20 @@ function createDataCoverage(dataset: DatasetItem | null): FeatureGeoJsonCollecti
   };
 }
 
+function createDataCoverageCollection(datasets: DatasetItem[]): FeatureGeoJsonCollection {
+  return {
+    ...emptyCollection,
+    features: datasets
+      .filter((dataset) => dataset.bbox)
+      .map((dataset) => ({
+        type: "Feature" as const,
+        id: `dataset-${dataset.datasetId}-coverage`,
+        geometry: dataset.bbox,
+        properties: { datasetId: dataset.datasetId, datasetVersionId: dataset.datasetVersionId, dsnm: dataset.dsnm }
+      }))
+  };
+}
+
 type GeometryLike =
   | { type: "Point"; coordinates: number[] }
   | { type: "MultiPoint" | "LineString"; coordinates: number[][] }
@@ -1221,3 +1378,4 @@ function collectCoordinates(geometry: GeometryLike | null, output: number[][]) {
     }
   }
 }
+
